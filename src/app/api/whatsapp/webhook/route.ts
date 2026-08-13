@@ -1,0 +1,90 @@
+import { responderVerificacion, verificarFirmaMeta } from '@/channels/meta-webhook'
+import { RepositorioEnMemoria, procesarWebhook } from '@/channels/procesador-webhook'
+
+/**
+ * Webhook de WhatsApp Cloud API.
+ *
+ * Primer código de servidor del repo. La landing no tenía backend y todo lo
+ * demás son funciones puras; esto existe porque la mitad entrante del canal no
+ * se puede simular: Meta tiene que poder llamarnos.
+ *
+ * La ruta se queda solo con lo que exige HTTP —cuerpo crudo, firma, códigos de
+ * estado— y delega el resto a `procesarWebhook`, que se prueba sin servidor.
+ *
+ * No se exporta `runtime`: el default ya es Node.js y el Edge Runtime está
+ * deprecado. Hace falta Node de todos modos, porque la firma usa `node:crypto`.
+ */
+
+/**
+ * Repositorio de proceso.
+ *
+ * **Tapón temporal.** Se pierde al reiniciar y no se comparte entre instancias,
+ * así que la idempotencia solo aguanta dentro de un proceso. Antes del primer
+ * cliente hay que cambiarlo por persistencia real: con dos réplicas, Meta
+ * reintentando y este repositorio, un mensaje entrante se registra dos veces y
+ * el cupo del cliente queda mal contado.
+ */
+const repositorio = new RepositorioEnMemoria()
+
+function entorno(): { appSecret: string; tokenVerificacion: string } | null {
+  const appSecret = process.env.META_APP_SECRET
+  const tokenVerificacion = process.env.META_TOKEN_VERIFICACION
+  if (!appSecret || !tokenVerificacion) return null
+  return { appSecret, tokenVerificacion }
+}
+
+/** Handshake de suscripción. Meta lo llama una vez al registrar la URL. */
+export async function GET(request: Request): Promise<Response> {
+  const config = entorno()
+  if (!config) return new Response('Webhook sin configurar', { status: 503 })
+
+  const params = new URL(request.url).searchParams
+  const challenge = responderVerificacion(
+    {
+      'hub.mode': params.get('hub.mode'),
+      'hub.verify_token': params.get('hub.verify_token'),
+      'hub.challenge': params.get('hub.challenge'),
+    },
+    config.tokenVerificacion,
+  )
+
+  if (challenge === null) return new Response('Verificación fallida', { status: 403 })
+  return new Response(challenge, {
+    status: 200,
+    headers: { 'content-type': 'text/plain' },
+  })
+}
+
+export async function POST(request: Request): Promise<Response> {
+  const config = entorno()
+  if (!config) return new Response('Webhook sin configurar', { status: 503 })
+
+  // El cuerpo **crudo**: la firma se calcula sobre los bytes que llegaron. Si
+  // se parsea y se vuelve a serializar, el HMAC no coincide y se rechaza todo.
+  const cuerpoCrudo = await request.text()
+
+  if (!verificarFirmaMeta(cuerpoCrudo, request.headers.get('x-hub-signature-256'), config.appSecret)) {
+    // Sin esto, quien conozca la URL puede declarar entregado un mensaje que
+    // nunca salió o inyectar un "BAJA" falso y apagar una cadencia.
+    return new Response('Firma inválida', { status: 401 })
+  }
+
+  let payload: unknown
+  try {
+    payload = JSON.parse(cuerpoCrudo)
+  } catch {
+    return new Response('JSON inválido', { status: 400 })
+  }
+
+  try {
+    await procesarWebhook(payload, repositorio)
+  } catch (e) {
+    // Se responde 200 igual. Meta reintenta ante cualquier no-2xx y, si el
+    // payload es el que rompe, el reintento vuelve a romper: se entra en un
+    // bucle que además degrada la entrega de la cuenta. El fallo se registra y
+    // se resuelve por fuera del ciclo del webhook.
+    console.error('[whatsapp-webhook] fallo procesando un evento ya verificado', e)
+  }
+
+  return new Response(null, { status: 200 })
+}
