@@ -45,3 +45,4 @@ next-env.d.ts
 .gstack/
 .vitest.json
 .auditoria.jsonl
+.vitest-e2e.json

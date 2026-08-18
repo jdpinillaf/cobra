@@ -26,6 +26,9 @@ interface Medicion {
   lineasTest: number
   dependencias: number
   masLento: { archivo: string; ms: number } | null
+  /** Los cinco caminos del producto. Es la barra de progreso de todo el build. */
+  e2eVerdes: number
+  e2eTotal: number
 }
 
 function correr(cmd: string, args: string[]): { salida: string; ms: number } {
@@ -57,7 +60,9 @@ function contarLineas(soloTests: boolean): number {
 
 const commit = correr('git', ['rev-parse', '--short', 'HEAD']).salida.trim()
 
-const suite = correr('pnpm', ['vitest', 'run', '--reporter=json', '--outputFile=.vitest.json'])
+const suite = correr('pnpm', [
+  'vitest', 'run', '--exclude', 'src/e2e/**', '--reporter=json', '--outputFile=.vitest.json',
+])
 const reporte = existsSync('.vitest.json')
   ? (JSON.parse(readFileSync('.vitest.json', 'utf8')) as {
       numTotalTests: number
@@ -69,6 +74,19 @@ const reporte = existsSync('.vitest.json')
 const porArchivo = (reporte?.testResults ?? [])
   .map((r) => ({ archivo: r.name.replace(process.cwd() + '/', ''), ms: r.endTime - r.startTime }))
   .sort((a, b) => b.ms - a.ms)
+
+// Los E2E se miden aparte y en rojo a propósito: hasta que el sistema exista
+// son la lista de lo que falta, no una regresión.
+const e2e = correr('pnpm', [
+  'vitest', 'run', 'src/e2e', '--reporter=json', '--outputFile=.vitest-e2e.json',
+])
+void e2e
+const reporteE2e = existsSync('.vitest-e2e.json')
+  ? (JSON.parse(readFileSync('.vitest-e2e.json', 'utf8')) as {
+      numTotalTests: number
+      numPassedTests: number
+    })
+  : null
 
 const typecheck = correr('pnpm', ['typecheck'])
 const deps = Object.keys(
@@ -86,6 +104,8 @@ const m: Medicion = {
   lineasTest: contarLineas(true),
   dependencias: deps,
   masLento: porArchivo[0] ?? null,
+  e2eVerdes: reporteE2e?.numPassedTests ?? 0,
+  e2eTotal: reporteE2e?.numTotalTests ?? 0,
 }
 
 const previas = existsSync(HISTORIAL)
@@ -109,7 +129,9 @@ console.log(`líneas código    ${String(m.lineasCodigo).padStart(8)}${delta(m.l
 console.log(`líneas test      ${String(m.lineasTest).padStart(8)}${delta(m.lineasTest, anterior?.lineasTest)}`)
 console.log(`ratio test/cód   ${String((m.lineasTest / (m.lineasCodigo || 1)).toFixed(2)).padStart(8)}`)
 console.log(`dependencias     ${String(m.dependencias).padStart(8)}${delta(m.dependencias, anterior?.dependencias)}`)
-if (m.masLento) console.log(`\nmás lento        ${m.masLento.archivo} (${Math.round(m.masLento.ms)}ms)`)
+const barra = '█'.repeat(m.e2eVerdes) + '░'.repeat(Math.max(0, m.e2eTotal - m.e2eVerdes))
+console.log(`\ncaminos E2E      ${String(`${m.e2eVerdes}/${m.e2eTotal}`).padStart(8)}  ${barra}`)
+if (m.masLento) console.log(`más lento        ${m.masLento.archivo} (${Math.round(m.masLento.ms)}ms)`)
 
 // Umbrales. No fallan el build, avisan. Un umbral que rompe el build se termina
 // subiendo hasta que no significa nada.

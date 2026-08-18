@@ -9,11 +9,12 @@
     "lint": "eslint",
     "demo": "tsx scripts/simular.ts",
     "grabar": "tsx scripts/grabar-demo.mts",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:cov": "vitest run --coverage",
+    "test": "vitest run --exclude 'src/e2e/**'",
+    "test:watch": "vitest --exclude 'src/e2e/**'",
+    "test:cov": "vitest run --coverage --exclude 'src/e2e/**'",
     "typecheck": "tsc --noEmit",
-    "auditoria": "tsx scripts/auditoria.mts"
+    "auditoria": "tsx scripts/auditoria.mts",
+    "test:e2e": "vitest run src/e2e"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.36",
