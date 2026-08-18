@@ -66,13 +66,17 @@ export function normalizarDocumento(crudo: unknown): Resultado<string> {
  * exports en inglés lo invierten. La regla que resuelve ambos: si aparecen los
  * dos separadores, el que esté más a la derecha es el decimal.
  */
-export function normalizarMonto(crudo: unknown): Resultado<number> {
-  if (crudo === null || crudo === undefined || crudo === '') return falla('vacío')
-  if (typeof crudo === 'number') {
-    return Number.isFinite(crudo) ? ok(Math.round(crudo)) : falla('monto no numérico')
-  }
-
-  let texto = String(crudo).trim().replace(/[$\s]/g, '').replace(/COP/gi, '')
+/**
+ * Deja el monto en notación canónica: sin separador de miles y con `.` decimal.
+ *
+ * Es la parte difícil y la comparten los dos normalizadores de plata, porque
+ * decidir cuál separador es cuál no depende de para qué se va a usar el número.
+ * Un `1.245.000` colombiano y un `1,245,000.50` gringo llegan por el mismo
+ * camino y hay que desambiguarlos por posición, no por presencia: mirar solo si
+ * hay coma es lo que hace que `500.00` se lea como quinientos mil.
+ */
+function canonizar(crudo: string): Resultado<{ texto: string; negativo: boolean }> {
+  let texto = crudo.trim().replace(/[$\s]/g, '').replace(/COP/gi, '')
   const negativo = /^\(.*\)$/.test(texto) || texto.startsWith('-')
   texto = texto.replace(/^[-(]|\)$/g, '')
   if (texto === '') return falla('vacío')
@@ -93,9 +97,47 @@ export function normalizarMonto(crudo: unknown): Resultado<number> {
     if (decimales === 3) texto = texto.split('.').join('')
   }
 
-  const valor = Number(texto)
-  if (!Number.isFinite(valor)) return falla(`monto inválido: "${crudo}"`)
-  return ok(Math.round(negativo ? -valor : valor))
+  if (!Number.isFinite(Number(texto))) return falla(`monto inválido: "${crudo}"`)
+  return ok({ texto, negativo })
+}
+
+export function normalizarMonto(crudo: unknown): Resultado<number> {
+  if (crudo === null || crudo === undefined || crudo === '') return falla('vacío')
+  if (typeof crudo === 'number') {
+    return Number.isFinite(crudo) ? ok(Math.round(crudo)) : falla('monto no numérico')
+  }
+
+  const r = canonizar(String(crudo))
+  if (!r.ok) return r
+  return ok(Math.round(r.valor.negativo ? -Number(r.valor.texto) : Number(r.valor.texto)))
+}
+
+/**
+ * El mismo monto, en centavos enteros.
+ *
+ * La conciliación exige monto exacto y sin tolerancia, así que el peso
+ * redondeado que devuelve `normalizarMonto` no sirve: `$0,50` se volvería `1` y
+ * dos montos que difieren en centavos cruzarían como si fueran el mismo pago.
+ *
+ * Los centavos se arman con aritmética entera sobre las dos mitades del texto,
+ * nunca multiplicando un float por cien. `1234567.89 * 100` es
+ * `123456788.99999999`, y aunque `Math.round` lo salve aquí, es una propiedad
+ * del valor y no de la operación.
+ */
+export function normalizarMontoCentavos(crudo: unknown): Resultado<number> {
+  if (crudo === null || crudo === undefined || crudo === '') return falla('vacío')
+  if (typeof crudo === 'number') {
+    return Number.isFinite(crudo) ? ok(Math.round(crudo * 100)) : falla('monto no numérico')
+  }
+
+  const r = canonizar(String(crudo))
+  if (!r.ok) return r
+
+  const [entero, decimales = ''] = r.valor.texto.split('.')
+  if (decimales.length > 2) return falla(`no existe medio centavo: "${crudo}"`)
+
+  const centavos = Number(entero || 0) * 100 + Number(decimales.padEnd(2, '0') || 0)
+  return ok(r.valor.negativo ? -centavos : centavos)
 }
 
 const EPOCA_EXCEL = Date.UTC(1899, 11, 30)
