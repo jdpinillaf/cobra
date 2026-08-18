@@ -8,13 +8,16 @@
     "start": "next start",
     "lint": "eslint",
     "demo": "tsx scripts/simular.ts",
+    "grabar": "tsx scripts/grabar-demo.mts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "auditoria": "tsx scripts/auditoria.mts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.36",
+    "@ai-sdk/openai": "^4.0.41",
     "@react-three/fiber": "^9.7.0",
     "ai": "^7.0.58",
     "libphonenumber-js": "^1.13.10",
