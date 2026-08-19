@@ -224,7 +224,15 @@ export async function recibirMensaje(params: {
       })
     }
 
-    conversacion.estadoCaso = 'humano'
+    // Solo la pausa marca el caso como humano.
+    //
+    // Antes esto corría también en la rama legal, y un bloqueo transitorio
+    // dejaba el hilo pausado para siempre: `sin_consentimiento` lo marcaba
+    // 'humano', el deudor después autorizaba, la ley ya no bloqueaba, y la
+    // compuerta seguía respondiendo "un asesor tiene la conversación" sin que
+    // ningún asesor la hubiera tocado. Es la misma mezcla que el enum evita,
+    // ocurriendo una capa más arriba.
+    if (compuerta.razon === 'pausa') conversacion.estadoCaso = 'humano'
     void espejarEnChatwoot(estado, conversacion)
     return vista(estado, conversacion)
   }
@@ -239,7 +247,23 @@ export async function recibirMensaje(params: {
   if (conversacion.estadoCaso === 'contactado' || conversacion.estadoCaso === 'en_cola') {
     conversacion.estadoCaso = 'negociando'
   }
-  const respuesta = await pensar({ estado, conversacion, urlBase: params.urlBase })
+  // El entrante y la ventana ya están escritos. Si el modelo falla acá y la
+  // excepción sube, el deudor se queda sin respuesta y la traza sin registro de
+  // por qué. `pensar` ya cae a guionado ante un error del proveedor; esto cubre
+  // lo que quede afuera, que es el caso en que ni el fallback funciona.
+  let respuesta: Awaited<ReturnType<typeof pensar>>
+  try {
+    respuesta = await pensar({ estado, conversacion, urlBase: params.urlBase })
+  } catch (error) {
+    agregarPaso(estado, conversacion, {
+      herramienta: 'cerebro',
+      detalle: `Falló al generar la respuesta: ${error instanceof Error ? error.message : String(error)}`,
+      estado: 'bloqueado',
+    })
+    conversacion.estadoCaso = 'humano'
+    void espejarEnChatwoot(estado, conversacion)
+    return vista(estado, conversacion)
+  }
 
   responder(estado, conversacion, respuesta.texto, obligacion.clienteId, obligacion.id, deudor.id, new Date(), {
     autorizadoPorCompuerta: true,

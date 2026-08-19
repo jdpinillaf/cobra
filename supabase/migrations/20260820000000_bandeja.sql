@@ -29,8 +29,12 @@ ALTER TABLE conversaciones
   ADD COLUMN estado           text NOT NULL DEFAULT 'abierta'
                               CHECK (estado IN ('abierta','cerrada'));
 
--- Un solo hilo abierto por deudor. Es lo que hace idempotente "abrir o
--- reutilizar" cuando entra un mensaje, sin necesidad de bloquear nada.
+-- Un solo hilo abierto por deudor.
+--
+-- El índice garantiza la invariante, no la idempotencia: sin `ON CONFLICT` en el
+-- INSERT, dos entrantes simultáneos del mismo deudor terminan en un 23505 en vez
+-- de reutilizar el hilo. Y sí toma lock: un INSERT contra un índice único espera
+-- el commit de la transacción que está insertando la misma llave.
 CREATE UNIQUE INDEX conversacion_abierta_por_deudor
   ON conversaciones (tenant_id, deudor_id) WHERE cerrada_en IS NULL;
 
@@ -78,6 +82,12 @@ CREATE TABLE conversacion_etiquetas (
 
 -- El sin-leer es por persona, no por conversación: que Marcela haya leído un
 -- hilo no significa que Andrés lo haya visto.
+--
+-- Ojo con el alcance: la llave primaria es por persona, pero la política de RLS
+-- es por tenant. Cualquier operador del mismo cliente puede escribir el
+-- `leido_hasta` ajeno. Está dentro del perímetro de confianza del cliente y se
+-- deja así a propósito; si algún día hace falta separar por usuario, la política
+-- tiene que mirar también `usuario_id`.
 CREATE TABLE lecturas (
   tenant_id       uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   conversacion_id uuid NOT NULL REFERENCES conversaciones(id) ON DELETE CASCADE,

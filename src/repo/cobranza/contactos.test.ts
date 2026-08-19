@@ -20,8 +20,11 @@ const TENANT_B = '22222222-2222-4222-8222-222222222222'
 const DEUDOR = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa'
 const OBLIGACION = 'bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb'
 
+let conversacionId: string
+
 const base = (over: Partial<Parameters<typeof registrarContacto>[2]> = {}) => ({
   obligacionId: OBLIGACION,
+  conversacionId,
   deudorId: DEUDOR,
   canal: 'whatsapp' as const,
   direccion: 'saliente' as const,
@@ -50,6 +53,14 @@ describe('contactos', () => {
     await db.sembrarTenant(TENANT_A, 'Ferretería El Tornillo')
     await db.sembrarTenant(TENANT_B, 'Distribuidora Andina')
     await db.sembrarDeudorConObligacion(TENANT_A, DEUDOR, OBLIGACION)
+    // Todo contacto pertenece a un hilo: es lo que sostiene el sin-leer y el
+    // orden de la bandeja, así que registrarContacto ya no acepta uno suelto.
+    const [c] = await db.db.query<{ id: string }>(
+      `INSERT INTO conversaciones (tenant_id, deudor_id, obligacion_id, abierta_en)
+       VALUES ($1, $2, $3, now()) RETURNING id`,
+      [TENANT_A, DEUDOR, OBLIGACION],
+    )
+    conversacionId = c.id
   })
 
   it('guarda el intento enviado con su costo sin redondear', async () => {

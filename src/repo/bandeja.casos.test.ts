@@ -31,8 +31,8 @@ describe('bandeja · esquema', () => {
 
   const abrirConversacion = (id: string, tenant: string, deudor: string, obl: string, cerradaEn: string | null = null) =>
     base.db.query(
-      `INSERT INTO conversaciones (id, tenant_id, deudor_id, obligacion_id, expira_en, cerrada_en)
-       VALUES ($1, $2, $3, $4, now() + interval '1 day', $5)`,
+      `INSERT INTO conversaciones (id, tenant_id, deudor_id, obligacion_id, cerrada_en)
+       VALUES ($1, $2, $3, $4, $5)`,
       [id, tenant, deudor, obl, cerradaEn],
     )
 
@@ -79,8 +79,8 @@ describe('bandeja · esquema', () => {
     it('permite N cerrados históricos + uno abierto', async () => {
       for (let i = 0; i < 3; i += 1) {
         await base.db.query(
-          `INSERT INTO conversaciones (tenant_id, deudor_id, obligacion_id, expira_en, cerrada_en)
-           VALUES ($1, $2, $3, now(), now())`,
+          `INSERT INTO conversaciones (tenant_id, deudor_id, obligacion_id, cerrada_en)
+           VALUES ($1, $2, $3, now())`,
           [A, DEUDOR_A, OBL_A],
         )
       }
@@ -105,24 +105,26 @@ describe('bandeja · esquema', () => {
      * Dos fuentes de verdad para "cerrada": la columna `estado` que agrega esta
      * misma migración, y `cerrada_en`, que es la que mira el índice.
      */
-    it("BUG: cerrar con estado='cerrada' NO libera el índice", async () => {
-      await abrirConversacion(CONV_A, A, DEUDOR_A, OBL_A)
-      await base.db.query("UPDATE conversaciones SET estado = 'cerrada' WHERE id = $1", [CONV_A])
+    it('cerrar es poner `cerrada_en`, y no hay una segunda forma de hacerlo', async () => {
+      // Estos dos casos documentaban que `conversaciones.estado` y `cerrada_en`
+      // podían contradecirse. La columna `estado` se eliminó: nadie la leía ni
+      // la escribía, y una fila con estado='cerrada' y cerrada_en NULL seguía
+      // ocupando el slot único y apareciendo en la bandeja.
+      //
+      // Ahora hay una sola fuente de verdad. Este test la defiende: si alguien
+      // vuelve a agregar una columna de estado, acá se entera.
+      const columnas = await base.db.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'conversaciones' AND column_name IN ('estado', 'expira_en')`,
+      )
+      expect(columnas).toHaveLength(0)
 
-      // El hilo dice estar cerrado y aun así impide abrir el siguiente.
-      await expect(abrirConversacion(CONV_A2, A, DEUDOR_A, OBL_A)).rejects.toThrow(/duplicate key/i)
-    })
-
-    it("BUG: cerrar con cerrada_en pero dejar estado='abierta' deja dos 'abiertas' en la bandeja", async () => {
-      await abrirConversacion(CONV_A, A, DEUDOR_A, OBL_A, new Date().toISOString())
-      await abrirConversacion(CONV_A2, A, DEUDOR_A, OBL_A)
-
-      const abiertas = await base.db.query<{ n: number }>(
-        "SELECT count(*)::int AS n FROM conversaciones WHERE deudor_id = $1 AND estado = 'abierta'",
+      await base.db.query('UPDATE conversaciones SET cerrada_en = now() WHERE id = $1', [CONV_A])
+      const libre = await base.db.query(
+        'SELECT id FROM conversaciones WHERE deudor_id = $1 AND cerrada_en IS NULL',
         [DEUDOR_A],
       )
-      // Nada obliga a que `estado` siga a `cerrada_en`: la bandeja ve dos.
-      expect(abiertas[0].n).toBe(2)
+      expect(libre).toHaveLength(0)
     })
   })
 
@@ -405,22 +407,6 @@ describe('bandeja · esquema', () => {
       ).rejects.toThrow(/duplicate key|unique/i)
     })
 
-    it('conversaciones.estado rechaza un valor fuera del enum', async () => {
-      await expect(
-        base.db.query(
-          `INSERT INTO conversaciones (tenant_id, deudor_id, expira_en, estado)
-           VALUES ($1,$2, now(), 'archivada')`,
-          [A, DEUDOR_A],
-        ),
-      ).rejects.toThrow(/check constraint|conversaciones_estado/i)
-    })
-
-    it('conversaciones.estado tampoco se puede romper con UPDATE', async () => {
-      await abrirConversacion(CONV_A, A, DEUDOR_A, OBL_A)
-      await expect(
-        base.db.query(`UPDATE conversaciones SET estado = 'pausada' WHERE id = $1`, [CONV_A]),
-      ).rejects.toThrow(/check constraint/i)
-    })
 
     it('motivo_pausa no tiene CHECK ni exige agente_pausado: se puede pausar sin motivo y motivar sin pausa', async () => {
       await abrirConversacion(CONV_A, A, DEUDOR_A, OBL_A)

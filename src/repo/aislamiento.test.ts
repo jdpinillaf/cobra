@@ -79,6 +79,18 @@ describe('aislamiento entre clientes', () => {
     expect(todo).toHaveLength(2)
   })
 
+  it('ninguna política es permisiva: todas filtran por app.tenant_id', async () => {
+    // El test de abajo comprueba que exista una política. Una `USING (true)`
+    // pasaría ese test y no aislaría nada. Este mira la expresión.
+    const flojas = await base.db.query<{ tablename: string; qual: string | null }>(`
+      SELECT tablename, qual FROM pg_policies
+       WHERE schemaname = 'public'
+         AND (qual IS NULL OR qual NOT LIKE '%app.tenant_id%')
+    `)
+
+    expect(flojas.map((p) => p.tablename)).toEqual([])
+  })
+
   it('todas las tablas tienen RLS activo y una política de tenant', async () => {
     // Atrapa el modo de falla real: alguien agrega una tabla en una migración
     // futura y se olvida de la política. Sin esto se descubre en producción.

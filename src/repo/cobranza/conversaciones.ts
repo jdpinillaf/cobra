@@ -43,13 +43,29 @@ export async function abrirOReutilizar(
   )
   if (abiertas.length > 0) return { id: abiertas[0].id, nueva: false }
 
+  // `ON CONFLICT` con el WHERE del índice parcial repetido: sin esa cláusula
+  // Postgres no infiere un índice parcial y el INSERT levanta 23505.
+  //
+  // Hace falta porque el SELECT de arriba no alcanza bajo concurrencia: dos
+  // entrantes del mismo deudor al mismo tiempo pasan los dos por el SELECT y
+  // los dos intentan insertar. El índice único convertía esa carrera en un
+  // error; con esto la convierte en lo que se quería, que es reutilizar.
   const [fila] = await db.query<{ id: string }>(
-    `INSERT INTO conversaciones (tenant_id, deudor_id, obligacion_id, abierta_en, expira_en)
-     VALUES ($1, $2, $3, $4, $4::timestamptz + interval '24 hours')
+    `INSERT INTO conversaciones (tenant_id, deudor_id, obligacion_id, abierta_en)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (tenant_id, deudor_id) WHERE cerrada_en IS NULL DO NOTHING
      RETURNING id`,
     [tenantId, params.deudorId, params.obligacionId ?? null, params.ahora],
   )
-  return { id: fila.id, nueva: true }
+  if (fila) return { id: fila.id, nueva: true }
+
+  // Perdimos la carrera: la abrió el otro.
+  const [existente] = await db.query<{ id: string }>(
+    `SELECT id FROM conversaciones
+      WHERE tenant_id = $1 AND deudor_id = $2 AND cerrada_en IS NULL`,
+    [tenantId, params.deudorId],
+  )
+  return { id: existente.id, nueva: false }
 }
 
 export async function pausarAgente(

@@ -19,7 +19,16 @@ import type { Db } from '../db'
 export interface ContactoNuevo {
   obligacionId: string
   deudorId: string
-  conversacionId?: string | null
+  /**
+   * Obligatorio al escribir.
+   *
+   * La columna es nullable porque un hilo borrado deja sus contactos con NULL,
+   * y esa historia no se pierde. Pero al momento de registrar siempre hay hilo,
+   * y sin él `tocarConversacion` se salía en silencio: la bandeja quedaba
+   * ordenada con una fecha vieja y, peor, `sin_leer` devolvía false para un
+   * entrante real. Un dato que sostiene el sin-leer no puede ser opcional.
+   */
+  conversacionId: string
   canal: Canal
   direccion: 'saliente' | 'entrante'
   /** ISO 8601 con offset. Siempre se evalúa contra hora de Bogotá. */
@@ -35,10 +44,19 @@ export interface ContactoNuevo {
   proveedor?: string | null
 }
 
-export interface ContactoGuardado extends Omit<ContactoNuevo, 'costoCop' | 'cuerpo'> {
+/**
+ * Lo que devuelve la lectura.
+ *
+ * `conversacionId` es obligatorio al escribir y nullable al leer, y no es una
+ * inconsistencia: borrar un hilo deja sus contactos con NULL para no perder la
+ * historia, pero en el momento de registrar siempre hay hilo.
+ */
+export interface ContactoGuardado
+  extends Omit<ContactoNuevo, 'costoCop' | 'cuerpo' | 'conversacionId'> {
   id: string
   cuerpo: string
   costoCop: number
+  conversacionId: string | null
 }
 
 export async function registrarContacto(
@@ -90,17 +108,32 @@ async function tocarConversacion(
   tenantId: string,
   contacto: ContactoNuevo,
 ): Promise<void> {
-  if (!contacto.conversacionId) return
-
-  await db.query(
+  // `LEAST(..., now())` acota el futuro.
+  //
+  // Un contacto puede tener fecha futura por diseño: el planificador difiere
+  // envíos y los deja `encolado` con su fecha de salida. Sin el tope, un envío
+  // agendado para mañana fijaría `ultimo_mensaje_en` en mañana, clavaría esa
+  // conversación arriba de la bandeja, y como `GREATEST` nunca retrocede, no
+  // podría volver a bajar jamás sin un UPDATE a mano.
+  const filas = await db.query<{ id: string }>(
     `UPDATE conversaciones
-        SET ultimo_mensaje_en  = GREATEST(ultimo_mensaje_en, $3::timestamptz),
+        SET ultimo_mensaje_en  = GREATEST(ultimo_mensaje_en, LEAST($3::timestamptz, now())),
             ultimo_entrante_en = CASE WHEN $4
-                                   THEN GREATEST(ultimo_entrante_en, $3::timestamptz)
+                                   THEN GREATEST(ultimo_entrante_en, LEAST($3::timestamptz, now()))
                                    ELSE ultimo_entrante_en END
-      WHERE tenant_id = $1 AND id = $2`,
+      WHERE tenant_id = $1 AND id = $2
+      RETURNING id`,
     [tenantId, contacto.conversacionId, contacto.timestamp, contacto.direccion === 'entrante'],
   )
+
+  // Cero filas significa que el hilo no existe o es de otro tenant. Las dos son
+  // bugs, y sin esto se perdían: el contacto quedaba escrito y la bandeja
+  // desactualizada, sin que nada lo dijera.
+  if (filas.length === 0) {
+    throw new Error(
+      `conversación ${contacto.conversacionId} inexistente para el tenant ${tenantId}`,
+    )
+  }
 }
 
 interface FilaContacto {
