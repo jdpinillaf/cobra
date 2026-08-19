@@ -17,7 +17,10 @@
     "test:e2e": "vitest run src/e2e",
     "verificar-db": "tsx scripts/verificar-db.mts",
     "sembrar": "tsx scripts/sembrar.mts",
-    "simular": "tsx scripts/simular-entrante.mts"
+    "simular": "tsx scripts/simular-entrante.mts",
+    "crear-usuario": "tsx scripts/crear-usuario.mts",
+    "migrar": "tsx scripts/migrar.mts",
+    "prepublicar": "tsx scripts/publicar.mts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.36",
