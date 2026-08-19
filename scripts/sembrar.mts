@@ -16,6 +16,7 @@ import { hashearClave } from '../src/auth/clave'
 import { generarCartera } from '../src/demo/seed'
 import { TENANT_DEV, obtenerDb } from '../src/repo/conexion'
 import { guardarCartera, listarObligaciones } from '../src/repo/cobranza/cartera'
+import { sembrarHilos } from '../src/bandeja/sembrar-hilos'
 
 /**
  * Secreto de sesión para desarrollo.
@@ -35,6 +36,11 @@ function asegurarSecreto(): void {
 }
 
 const CLAVE_DEV = 'ponox-dev'
+const EQUIPO = [
+  { id: '99999999-1111-4111-8111-999999999901', email: 'marcela@tornillo.co', nombre: 'Marcela Ruiz' },
+  { id: '99999999-1111-4111-8111-999999999902', email: 'andres@tornillo.co', nombre: 'Andrés Gómez' },
+  { id: '99999999-1111-4111-8111-999999999903', email: 'paula@tornillo.co', nombre: 'Paula Díaz' },
+]
 const cantidad = Number(process.argv[2] ?? 40)
 const fechaCorte = new Date().toISOString().slice(0, 10)
 
@@ -65,9 +71,30 @@ await db.query(
   [TENANT_DEV, await hashearClave(CLAVE_DEV)],
 )
 
+// Equipo del cliente, para que la bandeja tenga a quién asignarle.
+for (const u of EQUIPO) {
+  await db.query(
+    `INSERT INTO tenant_usuarios (id, tenant_id, email, nombre, hash_clave)
+     VALUES ($1,$2,$3,$4,$5) ON CONFLICT (tenant_id, email) DO NOTHING`,
+    [u.id, TENANT_DEV, u.email, u.nombre, await hashearClave(CLAVE_DEV)],
+  )
+}
+
 const cartera = generarCartera({ cantidad, fechaCorte, semilla: 42 })
 const resumen = await guardarCartera(db, TENANT_DEV, cartera)
 const obligaciones = await listarObligaciones(db, TENANT_DEV)
+
+const hilos = await sembrarHilos(db, TENANT_DEV, {
+  obligaciones: obligaciones.map((o) => ({
+    id: o.id,
+    deudorId: o.deudorId,
+    deudorNombre: o.deudorNombre,
+    diasMora: o.diasMora,
+  })),
+  usuarios: EQUIPO.map((u) => u.id),
+  ahora: new Date().toISOString(),
+  semilla: 7,
+})
 
 const porTramo = obligaciones.reduce<Record<string, number>>((acc, o) => {
   acc[o.tramo] = (acc[o.tramo] ?? 0) + 1
@@ -81,6 +108,10 @@ console.log(`deudores nuevos      ${resumen.deudores}`)
 console.log(`obligaciones nuevas  ${resumen.obligaciones}`)
 console.log(`actualizadas         ${resumen.actualizadas}`)
 console.log(`sin contactar        ${obligaciones.filter((o) => !o.contactable).length}`)
+console.log(`\nconversaciones       ${hilos.conversaciones}`)
+console.log(`mensajes             ${hilos.mensajes}`)
+console.log(`notas                ${hilos.notas}`)
+console.log(`etiquetas            ${hilos.etiquetas}`)
 console.log(`\npor tramo`)
 for (const [tramo, n] of Object.entries(porTramo).sort((a, b) => b[1] - a[1])) {
   console.log(`  ${tramo.padEnd(12)} ${String(n).padStart(4)}`)

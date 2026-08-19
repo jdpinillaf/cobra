@@ -11,7 +11,7 @@ import { MARCA } from '@/lib/marca'
  */
 const SECCIONES = [
   { href: '/consola/cartera', label: 'Cartera', listo: true },
-  { href: '/consola/conversaciones', label: 'Conversaciones', listo: false },
+  { href: '/consola/conversaciones', label: 'Conversaciones', listo: true },
   { href: '/consola/consumo', label: 'Consumo', listo: false },
   { href: '/consola/cumplimiento', label: 'Cumplimiento', listo: false },
 ]

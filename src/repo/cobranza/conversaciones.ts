@@ -27,6 +27,7 @@ export interface FilaBandeja {
   asignadaNombre: string | null
   /** Por persona: que otro lo haya leído no te lo marca a vos. */
   sinLeer: boolean
+  etiquetas: Array<{ nombre: string; tono: string }>
 }
 
 export type FiltroBandeja = 'todas' | 'mias' | 'sin_asignar' | 'pausadas'
@@ -144,6 +145,7 @@ export async function listarBandeja(
     asignada_a: string | null
     asignada_nombre: string | null
     sin_leer: boolean
+    etiquetas: Array<{ nombre: string; tono: string }>
   }>(
     `SELECT c.id, c.deudor_id, d.nombre, d.telefonos,
             c.ultimo_mensaje_en, c.agente_pausado, c.motivo_pausa,
@@ -153,7 +155,11 @@ export async function listarBandeja(
              AND (l.leido_hasta IS NULL OR c.ultimo_entrante_en > l.leido_hasta)) AS sin_leer,
             (SELECT ct.cuerpo FROM contactos ct
               WHERE ct.tenant_id = c.tenant_id AND ct.conversacion_id = c.id
-              ORDER BY ct.ocurrido_en DESC LIMIT 1) AS ultimo_mensaje
+              ORDER BY ct.ocurrido_en DESC LIMIT 1) AS ultimo_mensaje,
+            COALESCE((SELECT json_agg(json_build_object('nombre', e.nombre, 'tono', e.tono))
+                        FROM conversacion_etiquetas ce
+                        JOIN etiquetas e ON e.id = ce.etiqueta_id AND e.tenant_id = ce.tenant_id
+                       WHERE ce.tenant_id = c.tenant_id AND ce.conversacion_id = c.id), '[]') AS etiquetas
        FROM conversaciones c
        JOIN deudores d
          ON d.id = c.deudor_id AND d.tenant_id = c.tenant_id
@@ -182,6 +188,7 @@ export async function listarBandeja(
     asignadaA: f.asignada_a,
     asignadaNombre: f.asignada_nombre,
     sinLeer: f.sin_leer,
+    etiquetas: f.etiquetas ?? [],
   }))
 }
 
@@ -260,4 +267,76 @@ export async function hiloDeConversacion(
   // Se ordena acá y no con un UNION en SQL: son dos tablas con forma distinta y
   // un UNION obligaría a rellenar columnas con NULL de un lado y del otro.
   return entradas.sort((a, b) => a.ocurridoEn.localeCompare(b.ocurridoEn))
+}
+
+export interface Expediente {
+  conversacionId: string
+  deudorNombre: string
+  telefono: string | null
+  documento: string
+  numeroCredito: string
+  saldoTotal: number
+  diasMora: number
+  tramo: string
+  estadoObligacion: string
+  fechaVencimiento: string
+  contactable: boolean
+  agentePausado: boolean
+  motivoPausa: string | null
+  asignadaA: string | null
+  asignadaNombre: string | null
+}
+
+/** Todo lo que el panel derecho necesita, en una consulta. */
+export async function expedienteDeConversacion(
+  db: Db,
+  tenantId: string,
+  conversacionId: string,
+): Promise<Expediente | null> {
+  const filas = await db.query<Record<string, never>>(
+    `SELECT c.id, d.nombre, d.telefonos, d.documento,
+            d.consentimiento_otorgado, d.revocado_en,
+            c.agente_pausado, c.motivo_pausa, c.asignada_a, u.nombre AS asignada_nombre,
+            o.numero_credito, o.saldo_total_centavos, o.dias_mora, o.tramo,
+            o.estado AS estado_obligacion, o.fecha_vencimiento
+       FROM conversaciones c
+       JOIN deudores d ON d.id = c.deudor_id AND d.tenant_id = c.tenant_id
+       LEFT JOIN obligaciones o ON o.id = c.obligacion_id AND o.tenant_id = c.tenant_id
+       LEFT JOIN tenant_usuarios u ON u.id = c.asignada_a AND u.tenant_id = c.tenant_id
+      WHERE c.tenant_id = $1 AND c.id = $2`,
+    [tenantId, conversacionId],
+  )
+  if (filas.length === 0) return null
+
+  const f = filas[0] as unknown as {
+    id: string; nombre: string; telefonos: string[]; documento: string
+    consentimiento_otorgado: boolean; revocado_en: Date | null
+    agente_pausado: boolean; motivo_pausa: string | null
+    asignada_a: string | null; asignada_nombre: string | null
+    numero_credito: string | null; saldo_total_centavos: string | null
+    dias_mora: number | null; tramo: string | null
+    estado_obligacion: string | null; fecha_vencimiento: Date | string | null
+  }
+
+  return {
+    conversacionId: f.id,
+    deudorNombre: f.nombre,
+    telefono: f.telefonos[0] ?? null,
+    documento: f.documento,
+    numeroCredito: f.numero_credito ?? '—',
+    saldoTotal: Math.round(Number(f.saldo_total_centavos ?? 0) / 100),
+    diasMora: f.dias_mora ?? 0,
+    tramo: f.tramo ?? '—',
+    estadoObligacion: f.estado_obligacion ?? '—',
+    fechaVencimiento: f.fecha_vencimiento
+      ? String(f.fecha_vencimiento instanceof Date
+          ? f.fecha_vencimiento.toISOString().slice(0, 10)
+          : f.fecha_vencimiento).slice(0, 10)
+      : '—',
+    contactable: f.consentimiento_otorgado && f.revocado_en === null,
+    agentePausado: f.agente_pausado,
+    motivoPausa: f.motivo_pausa,
+    asignadaA: f.asignada_a,
+    asignadaNombre: f.asignada_nombre,
+  }
 }
