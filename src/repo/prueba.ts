@@ -24,6 +24,8 @@ export interface BaseDePrueba {
   sembrarTenant(id: string, nombre: string): Promise<void>
   /** Deudor + obligación mínimos, para los tests que necesitan las llaves foráneas. */
   sembrarDeudorConObligacion(tenantId: string, deudorId: string, obligacionId: string): Promise<void>
+  /** Usuario del equipo del cliente, para asignaciones y lecturas. */
+  sembrarUsuario(tenantId: string, usuarioId: string, email: string): Promise<void>
   /**
    * Corre SQL con el rol de aplicación y el tenant fijado en la sesión, que es
    * la única forma de que RLS realmente se aplique.
@@ -102,6 +104,13 @@ export async function crearBaseDePrueba(): Promise<BaseDePrueba> {
                                    saldo_total_centavos, fecha_vencimiento, dias_mora, tramo)
          VALUES ($1, $2, $3, 'CR-001', 100000000, 120000000, '2026-07-15', 35, 'media')`,
         [obligacionId, tenantId, deudorId],
+      )
+    },
+    async sembrarUsuario(tenantId, usuarioId, email) {
+      await db.query(
+        `INSERT INTO tenant_usuarios (id, tenant_id, email, nombre, hash_clave)
+         VALUES ($1, $2, $3, split_part($3, '@', 1), 'sin-clave')`,
+        [usuarioId, tenantId, email],
       )
     },
     async comoTenant<T>(tenantId: string, sql: string) {

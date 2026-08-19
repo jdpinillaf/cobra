@@ -69,7 +69,38 @@ export async function registrarContacto(
       contacto.proveedor ?? null,
     ],
   )
+  await tocarConversacion(db, tenantId, contacto)
+
   return { id: fila.id }
+}
+
+/**
+ * Mantiene las dos marcas de tiempo desnormalizadas de la conversación.
+ *
+ * `ultimo_mensaje_en` ordena la bandeja y `ultimo_entrante_en` resuelve el
+ * sin-leer con una comparación en vez de un COUNT sobre `contactos`. Vive acá y
+ * no en un trigger porque el camino de escritura es uno solo: si algún día hay
+ * dos, un trigger sería lo correcto, pero hoy sería magia escondida.
+ *
+ * `GREATEST` ignora los NULL en Postgres, así que sirve tanto para el primer
+ * mensaje como para uno que llega desordenado y no debería retroceder el reloj.
+ */
+async function tocarConversacion(
+  db: Db,
+  tenantId: string,
+  contacto: ContactoNuevo,
+): Promise<void> {
+  if (!contacto.conversacionId) return
+
+  await db.query(
+    `UPDATE conversaciones
+        SET ultimo_mensaje_en  = GREATEST(ultimo_mensaje_en, $3::timestamptz),
+            ultimo_entrante_en = CASE WHEN $4
+                                   THEN GREATEST(ultimo_entrante_en, $3::timestamptz)
+                                   ELSE ultimo_entrante_en END
+      WHERE tenant_id = $1 AND id = $2`,
+    [tenantId, contacto.conversacionId, contacto.timestamp, contacto.direccion === 'entrante'],
+  )
 }
 
 interface FilaContacto {
