@@ -67,7 +67,19 @@ const MOTIVOS_DEFINITIVOS: ReadonlySet<MotivoBloqueo> = new Set([
 
 export type ResultadoPlanificacion =
   | { tipo: 'enviar_ahora'; instante: Date }
-  | { tipo: 'reprogramar'; instante: Date; motivoDeEspera: MotivoBloqueo }
+  | {
+      tipo: 'reprogramar'
+      instante: Date
+      /** El último motivo antes de encontrar ventana: explica la fecha nueva. */
+      motivoDeEspera: MotivoBloqueo
+      /**
+       * Por qué no se pudo **ahora**. Es el que va al registro de cumplimiento:
+       * la pregunta que responde una auditoría es "por qué no contactaron ese
+       * día", no "por qué eligieron el día siguiente". Pueden diferir — un
+       * domingo seguido de un festivo deja `domingo` acá y `festivo` arriba.
+       */
+      motivoInicial: MotivoBloqueo
+    }
   | { tipo: 'detener'; motivo: MotivoBloqueo; detalle: string }
 
 /**
@@ -101,7 +113,12 @@ export function planificarEnvio(
 
     const decision = evaluar({ ...base, ahora: candidato })
     if (decision.permitido) {
-      return { tipo: 'reprogramar', instante: candidato, motivoDeEspera: ultimoMotivo }
+      return {
+        tipo: 'reprogramar',
+        instante: candidato,
+        motivoDeEspera: ultimoMotivo,
+        motivoInicial: inmediato.motivo,
+      }
     }
     const corte = decisionDefinitiva(decision)
     if (corte) return corte

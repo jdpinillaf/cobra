@@ -112,6 +112,27 @@ for (const p of PLANTILLAS) {
   )
 }
 
+// Cadencias por tramo. Sin esto el motor no tiene qué ejecutar.
+const CADENCIAS: Array<[string, Array<{ offsetDias: number; canal: string; plantillaId: null; fallbackSms: boolean }>]> = [
+  ['preventiva', [{ offsetDias: -3, canal: 'whatsapp', plantillaId: null, fallbackSms: false }]],
+  ['temprana', [
+    { offsetDias: 1, canal: 'whatsapp', plantillaId: null, fallbackSms: false },
+    { offsetDias: 8, canal: 'whatsapp', plantillaId: null, fallbackSms: false },
+  ]],
+  ['media', [
+    { offsetDias: 35, canal: 'whatsapp', plantillaId: null, fallbackSms: false },
+    { offsetDias: 60, canal: 'whatsapp', plantillaId: null, fallbackSms: true },
+  ]],
+  ['tardia', [{ offsetDias: 95, canal: 'whatsapp', plantillaId: null, fallbackSms: true }]],
+]
+for (const [tramo, pasos] of CADENCIAS) {
+  await db.query(
+    `INSERT INTO cadencias (tenant_id, tramo, pasos, activa) VALUES ($1,$2,$3,true)
+     ON CONFLICT (tenant_id, tramo) DO UPDATE SET pasos = EXCLUDED.pasos, activa = true`,
+    [TENANT_DEV, tramo, JSON.stringify(pasos)],
+  )
+}
+
 const cartera = generarCartera({ cantidad, fechaCorte, semilla: 42 })
 const resumen = await guardarCartera(db, TENANT_DEV, cartera)
 const obligaciones = await listarObligaciones(db, TENANT_DEV)

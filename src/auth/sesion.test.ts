@@ -52,10 +52,18 @@ describe('sesiones', () => {
     const { cookie } = await crearSesion(base.db, TENANT, MARCELA)
     const [id, firma] = cookie.split('.')
 
-    // El id de otra sesión con la firma de esta; la firma correcta con un id
-    // cambiado; y la firma recortada.
-    expect(await resolverSesion(base.db, `${id.slice(0, -1)}0.${firma}`)).toBeNull()
-    expect(await resolverSesion(base.db, `${id}.${firma.slice(0, -1)}0`)).toBeNull()
+    // Cambiar un carácter por otro FIJO es un test que falla una de cada
+    // dieciséis veces: si el original ya era ese carácter, no se modificó nada.
+    // Se rota dentro del alfabeto hexadecimal para garantizar el cambio.
+    const distinto = (hex: string) => {
+      const ultimo = hex.at(-1)!
+      return hex.slice(0, -1) + '0123456789abcdef'[('0123456789abcdef'.indexOf(ultimo) + 1) % 16]
+    }
+
+    // Un id alterado con la firma de esta sesión; la firma alterada con el id
+    // correcto; y la firma recortada.
+    expect(await resolverSesion(base.db, `${distinto(id)}.${firma}`)).toBeNull()
+    expect(await resolverSesion(base.db, `${id}.${distinto(firma)}`)).toBeNull()
     expect(await resolverSesion(base.db, `${id}.${firma.slice(0, 8)}`)).toBeNull()
   })
 
