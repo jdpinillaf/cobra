@@ -22,6 +22,8 @@ export interface BaseDePrueba {
   /** Conexión superusuario: el equivalente de la service key. Ignora RLS. */
   db: Db
   sembrarTenant(id: string, nombre: string): Promise<void>
+  /** Deudor + obligación mínimos, para los tests que necesitan las llaves foráneas. */
+  sembrarDeudorConObligacion(tenantId: string, deudorId: string, obligacionId: string): Promise<void>
   /**
    * Corre SQL con el rol de aplicación y el tenant fijado en la sesión, que es
    * la única forma de que RLS realmente se aplique.
@@ -72,6 +74,21 @@ export async function crearBaseDePrueba(): Promise<BaseDePrueba> {
         `INSERT INTO tenants (id, nombre, cuenta_ultimos4, email_alias, capacidades, estado)
          VALUES ($1, $2, '4129', $3, ARRAY['conciliacion'], 'activo')`,
         [id, nombre, `alias-${id.slice(0, 8)}@in.ponox.co`],
+      )
+    },
+    async sembrarDeudorConObligacion(tenantId, deudorId, obligacionId) {
+      await db.query(
+        `INSERT INTO deudores (id, tenant_id, tipo_documento, documento, nombre, telefonos,
+                               consentimiento_otorgado, consentimiento_fuente)
+         VALUES ($1, $2, 'CC', '1020304050', 'Deudor de Prueba', ARRAY['+573001112233'],
+                 true, 'importado')`,
+        [deudorId, tenantId],
+      )
+      await db.query(
+        `INSERT INTO obligaciones (id, tenant_id, deudor_id, numero_credito, capital_centavos,
+                                   saldo_total_centavos, fecha_vencimiento, dias_mora, tramo)
+         VALUES ($1, $2, $3, 'CR-001', 100000000, 120000000, '2026-07-15', 35, 'media')`,
+        [obligacionId, tenantId, deudorId],
       )
     },
     async comoTenant<T>(tenantId: string, sql: string) {
