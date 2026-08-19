@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "auditoria": "tsx scripts/auditoria.mts",
     "test:e2e": "vitest run src/e2e",
-    "verificar-db": "tsx scripts/verificar-db.mts"
+    "verificar-db": "tsx scripts/verificar-db.mts",
+    "sembrar": "tsx scripts/sembrar.mts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.36",

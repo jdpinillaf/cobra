@@ -46,3 +46,4 @@ next-env.d.ts
 .vitest.json
 .auditoria.jsonl
 .vitest-e2e.json
+.pglite/
