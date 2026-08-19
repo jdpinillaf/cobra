@@ -133,6 +133,10 @@ for (const [tramo, pasos] of CADENCIAS) {
   )
 }
 
+// El número de la empresa en Meta. Es el discriminador de tenant del webhook, y
+// sin él un mensaje entrante no se puede atribuir a nadie.
+await db.query(`UPDATE tenants SET phone_number_id = '10627' WHERE id = $1`, [TENANT_DEV])
+
 const cartera = generarCartera({ cantidad, fechaCorte, semilla: 42 })
 const resumen = await guardarCartera(db, TENANT_DEV, cartera)
 const obligaciones = await listarObligaciones(db, TENANT_DEV)
@@ -180,5 +184,7 @@ console.log(`\nsaldo total  ${new Intl.NumberFormat('es-CO', {
 }).format(saldo)}\n`)
 console.log(`  pnpm dev  →  http://localhost:3000/consola/entrar`)
 console.log(`  usuario   admin@tornillo.co`)
-console.log(`  clave     ${CLAVE_DEV}\n`)
+console.log(`  clave     ${CLAVE_DEV}`)
+console.log(`\n  simular un mensaje del deudor:`)
+console.log(`  pnpm simular "${obligaciones[0]?.telefono ?? '+573001112233'}" "ya pagué ayer"\n`)
 process.exit(0)
