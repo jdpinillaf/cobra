@@ -108,6 +108,24 @@ export interface CambioEstado {
   facturable: boolean | null
   codigoError: string | null
   error: string | null
+  /**
+   * Cuándo vence la ventana de servicio, **según Meta**.
+   *
+   * Lo manda en `conversation.expiration_timestamp`. Vale más que calcularla
+   * desde el entrante: la ventana decide si un mensaje sale gratis o exige
+   * plantilla, y una aproximación propia se desincroniza justo en los bordes,
+   * que es donde importa. `null` si Meta no la mandó — inventarla sería peor.
+   */
+  expiraVentanaEn: string | null
+  /** Id de conversación de Meta. Sirve para conciliar su factura con la nuestra. */
+  conversacionMeta: string | null
+}
+
+export interface MediaEntrante {
+  /** Id de Meta. La URL se pide con esto y vence a los 5 minutos. */
+  id: string
+  mimeType: string | null
+  sha256: string | null
 }
 
 export interface MensajeEntrante {
@@ -120,6 +138,14 @@ export interface MensajeEntrante {
   tipo: string
   ocurrioEn: string
   nombrePerfil: string | null
+  /**
+   * Adjunto, si lo hay.
+   *
+   * Sin el id de media el archivo se pierde: la URL de descarga vence a los
+   * cinco minutos y Meta no la vuelve a mandar. Es lo que sostiene la recepción
+   * de comprobantes.
+   */
+  media: MediaEntrante | null
 }
 
 /**
@@ -148,7 +174,14 @@ export function interpretarEstados(payload: unknown): CambioEstado[] {
         categoria: categoriaFacturable(s.pricing?.category),
         facturable: typeof s.pricing?.billable === 'boolean' ? s.pricing.billable : null,
         codigoError: primerError?.code != null ? String(primerError.code) : null,
-        error: primerError?.title ? String(primerError.title) : null,
+        // `error_data.details` es lo accionable: `title` dice "Re-engagement
+        // message" y `details` dice que pasaron más de 24 horas.
+        error:
+          primerError?.error_data?.details ??
+          primerError?.message ??
+          (primerError?.title ? String(primerError.title) : null),
+        expiraVentanaEn: desdeUnixOpcional(s.conversation?.expiration_timestamp),
+        conversacionMeta: s.conversation?.id ? String(s.conversation.id) : null,
       })
     }
   }
@@ -177,6 +210,7 @@ export function interpretarEntrantes(payload: unknown): MensajeEntrante[] {
         tipo: String(m.type ?? 'desconocido'),
         ocurrioEn: desdeUnix(m.timestamp),
         nombrePerfil: perfiles.get(String(m.from)) ?? null,
+        media: mediaDelMensaje(m),
       })
     }
   }
@@ -190,8 +224,23 @@ export function interpretarEntrantes(payload: unknown): MensajeEntrante[] {
  * Un botón de plantilla llega como `button` y no como `text`; leerlo importa
  * porque el opt-out del deudor puede venir por ahí y no escrito a mano.
  */
+function mediaDelMensaje(m: MensajeCrudo): MediaEntrante | null {
+  const adjunto = m.image ?? m.audio ?? m.video ?? m.document ?? m.sticker
+  if (!adjunto?.id) return null
+  return {
+    id: String(adjunto.id),
+    mimeType: adjunto.mime_type ? String(adjunto.mime_type) : null,
+    sha256: adjunto.sha256 ? String(adjunto.sha256) : null,
+  }
+}
+
 function cuerpoDelMensaje(m: MensajeCrudo): string {
   if (m.text?.body) return String(m.text.body)
+  // El epígrafe de una imagen es texto que escribió el deudor: va al hilo.
+  if (m.image?.caption) return String(m.image.caption)
+  if (m.video?.caption) return String(m.video.caption)
+  if (m.document?.caption) return String(m.document.caption)
+  if (m.reaction?.emoji) return String(m.reaction.emoji)
   if (m.button?.text) return String(m.button.text)
   if (m.interactive?.button_reply?.title) return String(m.interactive.button_reply.title)
   if (m.interactive?.list_reply?.title) return String(m.interactive.list_reply.title)
@@ -209,6 +258,13 @@ function categoriaFacturable(cruda: unknown): CategoriaFacturable | null {
   if (CATEGORIAS.has(v)) return v as CategoriaPlantilla
   if (v === 'service') return 'servicio'
   return null
+}
+
+/** Igual que `desdeUnix`, pero `null` en vez de inventar una fecha. */
+function desdeUnixOpcional(timestamp: unknown): string | null {
+  const segundos = Number(timestamp)
+  if (!Number.isFinite(segundos) || segundos <= 0) return null
+  return new Date(segundos * 1000).toISOString()
 }
 
 /** Meta manda epoch en segundos, como string. */
@@ -243,6 +299,30 @@ export function numerosDelPayload(payload: unknown): string[] {
   return [...vistos]
 }
 
+/**
+ * El mismo payload, recortado a un solo número.
+ *
+ * Meta agrupa en una entrega los eventos de todos los números de una misma
+ * WABA, así que un lote puede traer dos clientes mezclados. Procesarlo entero
+ * bajo un tenant escribiría la conversación de una empresa en la base de la
+ * otra. Se parte antes de tocar nada.
+ */
+export function filtrarPorNumero(payload: unknown, phoneNumberId: string): unknown {
+  const p = payload as { entry?: Array<{ changes?: Array<{ field?: string; value?: ValorCrudo }> }> }
+
+  return {
+    ...(payload as object),
+    entry: arreglo(p?.entry)
+      .map((entry) => ({
+        ...entry,
+        changes: arreglo(entry?.changes).filter(
+          (c) => c?.field === 'messages' && String(c.value?.metadata?.phone_number_id) === phoneNumberId,
+        ),
+      }))
+      .filter((entry) => entry.changes.length > 0),
+  }
+}
+
 function valoresDeMensajes(payload: unknown): ValorCrudo[] {
   const p = payload as { entry?: Array<{ changes?: Array<{ field?: string; value?: ValorCrudo }> }> }
   const salida: ValorCrudo[] = []
@@ -267,8 +347,23 @@ interface EstadoCrudo {
   id?: string
   status?: string
   timestamp?: string
-  pricing?: { billable?: boolean; category?: string }
-  errors?: Array<{ code?: number | string; title?: string }>
+  conversation?: { id?: string; expiration_timestamp?: string }
+  pricing?: { billable?: boolean; category?: string; pricing_model?: string }
+  errors?: Array<{
+    code?: number | string
+    title?: string
+    message?: string
+    error_data?: { details?: string }
+  }>
+}
+
+interface AdjuntoCrudo {
+  id?: string
+  mime_type?: string
+  sha256?: string
+  caption?: string
+  filename?: string
+  voice?: boolean
 }
 
 interface MensajeCrudo {
@@ -279,4 +374,11 @@ interface MensajeCrudo {
   text?: { body?: string }
   button?: { text?: string }
   interactive?: { button_reply?: { title?: string }; list_reply?: { title?: string } }
+  image?: AdjuntoCrudo
+  audio?: AdjuntoCrudo
+  video?: AdjuntoCrudo
+  document?: AdjuntoCrudo
+  sticker?: AdjuntoCrudo
+  reaction?: { emoji?: string; message_id?: string }
+  context?: { id?: string; forwarded?: boolean }
 }

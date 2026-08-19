@@ -1,5 +1,13 @@
-import { responderVerificacion, verificarFirmaMeta } from '@/channels/meta-webhook'
-import { RepositorioEnMemoria, procesarWebhook } from '@/channels/procesador-webhook'
+import {
+  filtrarPorNumero,
+  numerosDelPayload,
+  responderVerificacion,
+  verificarFirmaMeta,
+} from '@/channels/meta-webhook'
+import { procesarWebhook } from '@/channels/procesador-webhook'
+import { conTenant } from '@/repo/con-tenant'
+import { RepositorioPostgres } from '@/repo/cobranza/webhook-pg'
+import { obtenerDb } from '@/repo/conexion'
 
 /**
  * Webhook de WhatsApp Cloud API.
@@ -16,15 +24,41 @@ import { RepositorioEnMemoria, procesarWebhook } from '@/channels/procesador-web
  */
 
 /**
- * Repositorio de proceso.
+ * De qué cliente es cada evento.
  *
- * **Tapón temporal.** Se pierde al reiniciar y no se comparte entre instancias,
- * así que la idempotencia solo aguanta dentro de un proceso. Antes del primer
- * cliente hay que cambiarlo por persistencia real: con dos réplicas, Meta
- * reintentando y este repositorio, un mensaje entrante se registra dos veces y
- * el cupo del cliente queda mal contado.
+ * Meta agrupa en una sola entrega los eventos de todos los números de una misma
+ * WABA, así que un lote puede traer dos empresas mezcladas. El payload se parte
+ * por `phone_number_id` **antes** de tocar nada, y cada parte se procesa dentro
+ * de su propio `conTenant`: así RLS también aplica, y no solo el `WHERE` de cada
+ * consulta.
+ *
+ * Un número que no corresponde a ningún tenant se ignora en silencio. Puede ser
+ * un número dado de baja, o una suscripción vieja que Meta todavía no soltó, y
+ * no es motivo para devolver error y hacer que reintente el lote entero.
  */
-const repositorio = new RepositorioEnMemoria()
+async function procesarPorTenant(payload: unknown): Promise<{ atendidos: number; ignorados: number }> {
+  const db = await obtenerDb()
+  let atendidos = 0
+  let ignorados = 0
+
+  for (const numero of numerosDelPayload(payload)) {
+    const [tenant] = await db.query<{ id: string }>(
+      `SELECT id FROM tenants WHERE phone_number_id = $1 AND estado = 'activo'`,
+      [numero],
+    )
+    if (!tenant) {
+      ignorados += 1
+      continue
+    }
+
+    await conTenant(db, tenant.id, (tx) =>
+      procesarWebhook(filtrarPorNumero(payload, numero), new RepositorioPostgres(tx, tenant.id)),
+    )
+    atendidos += 1
+  }
+
+  return { atendidos, ignorados }
+}
 
 function entorno(): { appSecret: string; tokenVerificacion: string } | null {
   const appSecret = process.env.META_APP_SECRET
@@ -77,7 +111,10 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    await procesarWebhook(payload, repositorio)
+    const { ignorados } = await procesarPorTenant(payload)
+    if (ignorados > 0) {
+      console.warn(`[whatsapp-webhook] ${ignorados} número(s) sin tenant activo`)
+    }
   } catch (e) {
     // Se responde 200 igual. Meta reintenta ante cualquier no-2xx y, si el
     // payload es el que rompe, el reintento vuelve a romper: se entra en un
