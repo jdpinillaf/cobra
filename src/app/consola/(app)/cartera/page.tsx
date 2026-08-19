@@ -1,5 +1,6 @@
+import { requerirSesion } from '@/auth/actual'
 import { listarObligaciones } from '@/repo/cobranza/cartera'
-import { TENANT_DEV, obtenerDb } from '@/repo/conexion'
+import { obtenerDb } from '@/repo/conexion'
 import { Celda, Encabezado, Estado, Tabla } from '@/components/consola/Tabla'
 
 export const dynamic = 'force-dynamic'
@@ -24,8 +25,11 @@ const COLUMNAS = [
 ]
 
 export default async function PaginaCartera() {
+  // El tenant sale de la sesión, no de una constante. Era el último lugar donde
+  // el aislamiento dependía de que nadie tocara un valor fijo.
+  const sesion = await requerirSesion()
   const db = await obtenerDb()
-  const obligaciones = await listarObligaciones(db, TENANT_DEV)
+  const obligaciones = await listarObligaciones(db, sesion.tenantId)
 
   const saldoTotal = obligaciones.reduce((s, o) => s + o.saldoTotal, 0)
   const sinContactar = obligaciones.filter((o) => !o.contactable).length
