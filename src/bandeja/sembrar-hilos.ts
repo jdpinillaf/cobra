@@ -5,6 +5,7 @@ import {
   marcarLeida,
   pausarAgente,
 } from '@/repo/cobranza/conversaciones'
+import { renovarVentana } from '@/repo/cobranza/ventanas'
 import type { Db } from '@/repo/db'
 import { generarHilos, type OpcionesHilos } from './seed-hilos'
 
@@ -108,6 +109,15 @@ export async function sembrarHilos(
     }
     if (hilo.asignadaA) {
       await asignar(db, tenantId, conversacionId, hilo.asignadaA)
+    }
+
+    // La ventana de 24 h nace del último entrante real, igual que en
+    // producción. Así el seed produce hilos con ventana abierta y hilos con
+    // ventana vencida, que son los dos estados que el redactor tiene que saber
+    // dibujar. Sembrar solo ventanas abiertas escondería la mitad de la UI.
+    const ultimoEntrante = [...hilo.mensajes].reverse().find((m) => m.direccion === 'entrante')
+    if (ultimoEntrante) {
+      await renovarVentana(db, tenantId, hilo.deudorId, ultimoEntrante.ocurridoEn)
     }
 
     // Marcar leído a quienes NO están en `sinLeerPara`.

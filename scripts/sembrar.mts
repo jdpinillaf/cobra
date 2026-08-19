@@ -80,6 +80,38 @@ for (const u of EQUIPO) {
   )
 }
 
+// Plantillas aprobadas por Meta. Sin ellas, el redactor no tiene qué ofrecer
+// cuando la ventana de 24 h está cerrada, que es la mitad de la bandeja.
+const PLANTILLAS = [
+  {
+    nombre: 'recordatorio_vencimiento',
+    categoria: 'utility',
+    cuerpo: 'Hola {{1}}, le recordamos que su crédito {{2}} tiene un saldo pendiente de {{3}}. Puede escribirnos por acá.',
+    variables: ['nombre', 'credito', 'saldo'],
+  },
+  {
+    nombre: 'invitacion_acuerdo',
+    categoria: 'utility',
+    cuerpo: 'Hola {{1}}, podemos armar un acuerdo de pago para su crédito {{2}}. ¿Le sirve que lo veamos?',
+    variables: ['nombre', 'credito'],
+  },
+  {
+    nombre: 'confirmacion_pago',
+    categoria: 'utility',
+    cuerpo: 'Recibimos su pago de {{1}}. Gracias, {{2}}.',
+    variables: ['monto', 'nombre'],
+  },
+]
+
+for (const p of PLANTILLAS) {
+  await db.query(
+    `INSERT INTO plantillas (tenant_id, nombre, canal, categoria, nombre_meta, cuerpo, variables, aprobada_en_meta)
+     VALUES ($1,$2,'whatsapp',$3,$2,$4,$5,true)
+     ON CONFLICT (tenant_id, nombre) DO UPDATE SET cuerpo = EXCLUDED.cuerpo, aprobada_en_meta = true`,
+    [TENANT_DEV, p.nombre, p.categoria, p.cuerpo, p.variables],
+  )
+}
+
 const cartera = generarCartera({ cantidad, fechaCorte, semilla: 42 })
 const resumen = await guardarCartera(db, TENANT_DEV, cartera)
 const obligaciones = await listarObligaciones(db, TENANT_DEV)
@@ -112,6 +144,12 @@ console.log(`\nconversaciones       ${hilos.conversaciones}`)
 console.log(`mensajes             ${hilos.mensajes}`)
 console.log(`notas                ${hilos.notas}`)
 console.log(`etiquetas            ${hilos.etiquetas}`)
+const [{ n: abiertas }] = await db.query<{ n: number }>(
+  `SELECT count(*)::int AS n FROM ventanas_servicio WHERE tenant_id = $1 AND expira_en > now()`,
+  [TENANT_DEV],
+)
+console.log(`ventanas abiertas    ${abiertas}`)
+console.log(`plantillas           ${PLANTILLAS.length}`)
 console.log(`\npor tramo`)
 for (const [tramo, n] of Object.entries(porTramo).sort((a, b) => b[1] - a[1])) {
   console.log(`  ${tramo.padEnd(12)} ${String(n).padStart(4)}`)

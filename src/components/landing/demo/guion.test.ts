@@ -62,7 +62,7 @@ describe('reducir', () => {
   it('el estado final tiene todo lo que el guion promete', () => {
     const t = reducir(GUION)
 
-    expect(t.instruccion).toHaveLength(5)
+    expect(t.instruccion).toHaveLength(4)
     expect(t.cadencia).toEqual(CADENCIA)
     expect(t.herramientas).toEqual(HERRAMIENTAS)
     expect(t.desplegando).toBe(true)
@@ -125,16 +125,29 @@ describe('reducir', () => {
 })
 
 describe('presupuesto de tiempo', () => {
-  /** Una demo que no cabe en la atención de un visitante no es una demo. */
-  it('el ciclo completo se mantiene por debajo de 45 s', () => {
-    expect(DURACION_MS).toBeLessThan(45_000)
+  /**
+   * Una demo que no cabe en la atención de un visitante no es una demo. El tope
+   * baja a 22 s a propósito: si alguien agrega beats, el test avisa antes de que
+   * el ciclo vuelva a estirarse.
+   */
+  it('el ciclo completo se mantiene por debajo de 22 s', () => {
+    expect(DURACION_MS).toBeLessThan(22_000)
   })
 
-  it('la configuración no se come más de 14 s del total', () => {
+  it('la operación no se come más de 13 s del total', () => {
+    const operacion = GUION.filter((e) => faseDe(e) === 'operacion').reduce(
+      (s, e) => s + e.espera,
+      0,
+    )
+    expect(operacion).toBeLessThan(13_000)
+  })
+
+  /** El acto de configuración es el que más rápido tiene que ir: es el gancho. */
+  it('la configuración no se come más de 8 s del total', () => {
     const config = GUION.filter((e) => faseDe(e) === 'configuracion').reduce(
       (s, e) => s + e.espera,
       0,
     )
-    expect(config).toBeLessThan(14_000)
+    expect(config).toBeLessThan(8_000)
   })
 })

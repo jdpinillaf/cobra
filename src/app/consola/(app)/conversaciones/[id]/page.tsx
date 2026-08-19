@@ -3,7 +3,9 @@ import { requerirSesion } from '@/auth/actual'
 import { Bloqueado, Burbuja, FONDO_CHAT, Nota } from '@/components/chat/Burbuja'
 import { fechaCorta, horaDeReloj } from '@/components/demo/hora'
 import { cop } from '@/lib/formato'
+import { Controles } from '@/components/consola/bandeja/Controles'
 import { expedienteDeConversacion, hiloDeConversacion } from '@/repo/cobranza/conversaciones'
+import { plantillasAprobadas, ventanaDe } from '@/repo/cobranza/ventanas'
 import { obtenerDb } from '@/repo/conexion'
 
 export const dynamic = 'force-dynamic'
@@ -27,7 +29,11 @@ export default async function PaginaHilo({ params }: { params: Promise<{ id: str
   const expediente = await expedienteDeConversacion(db, sesion.tenantId, id)
   if (!expediente) notFound()
 
-  const hilo = await hiloDeConversacion(db, sesion.tenantId, id)
+  const [hilo, ventana, plantillas] = await Promise.all([
+    hiloDeConversacion(db, sesion.tenantId, id),
+    ventanaDe(db, sesion.tenantId, expediente.deudorId),
+    plantillasAprobadas(db, sesion.tenantId),
+  ])
 
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
@@ -78,11 +84,20 @@ export default async function PaginaHilo({ params }: { params: Promise<{ id: str
           )}
         </div>
 
-        {/* El redactor llega con el envío manual y la ventana de 24 h. */}
-        <p className="mt-3 text-sm text-ink-faint">
-          Responder desde acá llega con el envío manual, que necesita el control de la ventana de
-          24 horas de WhatsApp.
-        </p>
+        <Controles
+          conversacionId={id}
+          agentePausado={expediente.agentePausado}
+          asignadaA={expediente.asignadaA}
+          usuarioId={sesion.usuarioId}
+          ventanaExpiraEn={ventana?.expiraEn ?? null}
+          plantillas={plantillas.map((p) => ({
+            id: p.id,
+            nombre: p.nombre,
+            cuerpo: p.cuerpo,
+            categoria: p.categoria,
+            variables: p.variables,
+          }))}
+        />
       </div>
 
       <aside className="xl:border-l xl:border-rule xl:pl-6">

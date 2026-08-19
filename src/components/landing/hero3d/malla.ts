@@ -112,3 +112,115 @@ export function construirMalla(cantidad = CANTIDAD_NODOS, semilla = SEMILLA): Ma
 function distancia(a: readonly number[], b: readonly number[]): number {
   return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
 }
+
+// --- La segunda disposición: la espina ---
+
+/**
+ * Siete nodos de tronco, no seis: con siete hay cuatro posiciones pares
+ * —0, 2, 4 y 6— **equidistantes**, y ahí van los cuatro iconos. Con seis, el
+ * último par quedaba a media distancia del anterior.
+ */
+const TRONCO = 7
+const RAMA = 3
+/** Cuántos nodos entran al proceso. El resto se va. */
+export const NODOS_ESPINA = TRONCO + RAMA * 2
+
+/** Los nodos del tronco que llevan icono, de izquierda a derecha. */
+export const SLOTS_ICONO = [0, 2, 4, 6] as const
+
+/**
+ * La cámara de la escena vive acá porque **la capa de iconos proyecta con estos
+ * mismos números**. Si se separan, los iconos dejan de caer sobre los nodos.
+ */
+export const CAMARA = { z: 3.4, fov: 45 } as const
+
+/** Medio alto visible en el plano z = 0, en unidades de mundo. */
+const MEDIA_ALTURA = CAMARA.z * Math.tan(((CAMARA.fov / 2) * Math.PI) / 180)
+
+/**
+ * Proyecta un punto del plano z = 0 a fracciones 0..1 del canvas.
+ *
+ * Solo vale mientras la espina está de frente, que es exactamente cuando se
+ * muestran los iconos: en el recorrido la rotación ya está en cero.
+ */
+export function proyectar(x: number, y: number, aspecto: number) {
+  return {
+    fx: 0.5 + x / (2 * MEDIA_ALTURA * aspecto),
+    fy: 0.5 - y / (2 * MEDIA_ALTURA),
+  }
+}
+
+/**
+ * Los que no entran a la espina se mandan **detrás del plano lejano de la
+ * niebla**: se desvanecen contra el papel sin necesitar opacidad por vértice,
+ * que exigiría un shader propio.
+ */
+const Z_FUERA = -6
+
+export interface Espina {
+  /** xyz **por slot de aparición** de la nube, no por id de nodo. */
+  readonly posiciones: Float32Array
+  readonly aristas: readonly (readonly [number, number])[]
+  /**
+   * Posición del nodo en el recorrido, de 0 a 1 según su x. Los que quedaron
+   * fuera traen 2: nunca los alcanza el frente verde.
+   */
+  readonly avance: Float32Array
+}
+
+/**
+ * Una espina de izquierda a derecha con dos ramas cortas que salen y vuelven.
+ *
+ * Se indexa por **slot de aparición**, así que los doce primeros —los que en la
+ * nube nacen más cerca del centro— son los que forman el proceso. Eso conserva
+ * la invariante que sostiene el morfeo: los mismos nodos en las dos figuras, el
+ * índice es la identidad.
+ */
+export function construirEspina(cantidad = CANTIDAD_NODOS): Espina {
+  const posiciones = new Float32Array(cantidad * 3)
+  const avance = new Float32Array(cantidad).fill(2)
+
+  const poner = (slot: number, x: number, y: number, z = 0) => {
+    posiciones[slot * 3] = x
+    posiciones[slot * 3 + 1] = y
+    posiciones[slot * 3 + 2] = z
+  }
+
+  const xTronco = (i: number) => -1.25 + i * (2.5 / (TRONCO - 1))
+
+  // Tronco: slots 0..6, de izquierda a derecha y a paso constante.
+  for (let i = 0; i < TRONCO; i += 1) poner(i, xTronco(i), 0)
+
+  /*
+   * Las dos ramas se abren en el tronco 1 y se cierran en el 5, y sus nodos van
+   * **en la misma x que los del tronco 2, 3 y 4**. Así la figura queda simétrica
+   * y alineada en columnas en vez de parecer acomodada a ojo.
+   */
+  const xRama = [xTronco(2), xTronco(3), xTronco(4)]
+  xRama.forEach((x, i) => poner(TRONCO + i, x, 0.6))
+  xRama.forEach((x, i) => poner(TRONCO + RAMA + i, x, -0.6))
+
+  /*
+   * Los de afuera se reparten en un anillo detrás de la niebla. Nunca se ven,
+   * pero repartirlos evita que se apilen en un punto durante el morfeo y se
+   * lean como un borrón mientras se van.
+   */
+  for (let i = NODOS_ESPINA; i < cantidad; i += 1) {
+    const a = (i / Math.max(1, cantidad - NODOS_ESPINA)) * Math.PI * 2
+    poner(i, Math.cos(a) * 2.4, Math.sin(a) * 2.4, Z_FUERA)
+  }
+
+  // El avance es la x normalizada: el frente verde barre de izquierda a derecha.
+  for (let i = 0; i < NODOS_ESPINA; i += 1) avance[i] = (posiciones[i * 3] + 1.25) / 2.5
+
+  const alta = [1, TRONCO, TRONCO + 1, TRONCO + 2, 5]
+  const baja = [1, TRONCO + RAMA, TRONCO + RAMA + 1, TRONCO + RAMA + 2, 5]
+
+  const aristas: [number, number][] = []
+  for (let i = 0; i < TRONCO - 1; i += 1) aristas.push([i, i + 1])
+  for (const cadena of [alta, baja]) {
+    for (let i = 0; i < cadena.length - 1; i += 1) aristas.push([cadena[i], cadena[i + 1]])
+  }
+
+  return { posiciones, aristas, avance }
+}

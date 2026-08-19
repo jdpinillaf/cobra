@@ -271,6 +271,8 @@ export async function hiloDeConversacion(
 
 export interface Expediente {
   conversacionId: string
+  deudorId: string
+  obligacionId: string
   deudorNombre: string
   telefono: string | null
   documento: string
@@ -294,7 +296,7 @@ export async function expedienteDeConversacion(
   conversacionId: string,
 ): Promise<Expediente | null> {
   const filas = await db.query<Record<string, never>>(
-    `SELECT c.id, d.nombre, d.telefonos, d.documento,
+    `SELECT c.id, c.deudor_id, c.obligacion_id, d.nombre, d.telefonos, d.documento,
             d.consentimiento_otorgado, d.revocado_en,
             c.agente_pausado, c.motivo_pausa, c.asignada_a, u.nombre AS asignada_nombre,
             o.numero_credito, o.saldo_total_centavos, o.dias_mora, o.tramo,
@@ -309,7 +311,8 @@ export async function expedienteDeConversacion(
   if (filas.length === 0) return null
 
   const f = filas[0] as unknown as {
-    id: string; nombre: string; telefonos: string[]; documento: string
+    id: string; deudor_id: string; obligacion_id: string
+    nombre: string; telefonos: string[]; documento: string
     consentimiento_otorgado: boolean; revocado_en: Date | null
     agente_pausado: boolean; motivo_pausa: string | null
     asignada_a: string | null; asignada_nombre: string | null
@@ -320,6 +323,8 @@ export async function expedienteDeConversacion(
 
   return {
     conversacionId: f.id,
+    deudorId: f.deudor_id,
+    obligacionId: f.obligacion_id,
     deudorNombre: f.nombre,
     telefono: f.telefonos[0] ?? null,
     documento: f.documento,
