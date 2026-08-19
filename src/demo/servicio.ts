@@ -142,15 +142,31 @@ export async function recibirMensaje(params: {
 
   // 3. Recién ahora se mira si pidió la baja.
   if (detectarOptOut(params.texto)) {
-    deudor.consentimiento = { ...deudor.consentimiento, revocadoEn: ahora.toISOString() }
-    conversacion.estadoCaso = 'humano'
+    // La fecha en que el deudor pidió la baja es evidencia ante la SIC, y es la
+    // primera vez que lo pidió. Cada mensaje posterior la reescribía hacia
+    // adelante y borraba el dato que importa.
+    const yaEstaba = deudor.consentimiento.revocadoEn !== null
+    if (!yaEstaba) {
+      deudor.consentimiento = { ...deudor.consentimiento, revocadoEn: ahora.toISOString() }
+    }
     agregarPaso(estado, conversacion, {
       herramienta: 'optOut',
-      detalle: 'Pidió la baja. Consentimiento revocado y cadencia detenida.',
+      detalle: yaEstaba
+        ? 'Volvió a pedir la baja. Ya estaba revocado, no se repite la despedida.'
+        : 'Pidió la baja. Consentimiento revocado y cadencia detenida.',
       estado: 'bloqueado',
     })
-    const despedida = 'Listo. No le volvemos a escribir. Gracias por avisarnos.'
-    responder(estado, conversacion, despedida, obligacion.clienteId, obligacion.id, deudor.id, ahora)
+    // Se confirma una sola vez, y antes de marcar el caso como humano: si no, la
+    // pausa que el propio opt-out crea bloquearía su confirmación. Repetir "no
+    // le volvemos a escribir" en cada mensaje es exactamente lo que el deudor
+    // pidió que dejara de pasar.
+    if (!yaEstaba) {
+      const despedida = 'Listo. No le volvemos a escribir. Gracias por avisarnos.'
+      responder(estado, conversacion, despedida, obligacion.clienteId, obligacion.id, deudor.id, ahora, {
+        reconocimientoDeBaja: true,
+      })
+    }
+    conversacion.estadoCaso = 'humano'
     void espejarEnChatwoot(estado, conversacion)
     return vista(estado, conversacion)
   }
@@ -199,7 +215,9 @@ export async function recibirMensaje(params: {
         proveedor: null,
       })
     } else {
-      agregarPaso(estado, conversacion, {
+      // Si el deudor escribe cinco veces con el agente pausado, la traza lo dice
+      // una vez. Repetirlo esconde lo que sí pasó entre medio.
+      agregarPasoSiCambia(estado, conversacion, {
         herramienta: 'agentePausado',
         detalle: compuerta.detalle,
         estado: 'bloqueado',
@@ -223,12 +241,58 @@ export async function recibirMensaje(params: {
   }
   const respuesta = await pensar({ estado, conversacion, urlBase: params.urlBase })
 
-  responder(estado, conversacion, respuesta.texto, obligacion.clienteId, obligacion.id, deudor.id, new Date())
+  responder(estado, conversacion, respuesta.texto, obligacion.clienteId, obligacion.id, deudor.id, new Date(), {
+    autorizadoPorCompuerta: true,
+  })
   void espejarEnChatwoot(estado, conversacion)
   return vista(estado, conversacion)
 }
 
-/** Escribe la respuesta del agente en la conversación y en el log de auditoría. */
+/**
+ * ¿Puede el sistema escribirle al deudor ahora mismo?
+ *
+ * Existe porque había tres caminos que le escribían y solo uno consultaba la
+ * compuerta: la despedida del opt-out salía antes de evaluarla, y la
+ * confirmación de pago no la evaluaba nunca. No eran tres bugs sueltos, era un
+ * punto de estrangulamiento que faltaba.
+ *
+ * Se consulta dentro de `responder`, que es el único lugar del módulo que
+ * escribe un mensaje saliente. Ponerlo en cada llamador sería volver a confiar
+ * en que nadie se olvide.
+ */
+function puedeEscribirle(
+  estado: EstadoDemo,
+  conversacion: Conversacion,
+  deudorId: string,
+): { puede: true } | { puede: false; motivo: string } {
+  if (conversacion.estadoCaso === 'humano') {
+    return { puede: false, motivo: 'agente_pausado' }
+  }
+  const deudor = estado.cartera.deudores.find((d) => d.id === deudorId)
+  if (deudor?.consentimiento.revocadoEn) {
+    return { puede: false, motivo: 'opt_out' }
+  }
+  return { puede: true }
+}
+
+/**
+ * Escribe la respuesta del agente en la conversación y en el log de auditoría.
+ *
+ * Dos excepciones, las dos angostas.
+ *
+ * `autorizadoPorCompuerta` es para el turno normal: la compuerta ya corrió al
+ * principio del turno y aprobó. La pausa impide que el agente **empiece** a
+ * contestar, no que termine la respuesta que ya decidió dar — si el agente
+ * resuelve escalar, el mensaje de "te paso con una persona" tiene que salir,
+ * aunque escalar sea justamente lo que marca el caso como humano.
+ *
+ * `reconocimientoDeBaja` es para la confirmación de "no le volvemos a
+ * escribir": es la respuesta al pedido del deudor, así que no puede quedar
+ * bloqueada por el pedido mismo.
+ *
+ * Todo lo demás pasa por el chequeo. Esa es la garantía: un camino nuevo que
+ * escriba sin pedir permiso queda bloqueado por defecto, no habilitado.
+ */
 function responder(
   estado: EstadoDemo,
   conversacion: Conversacion,
@@ -237,7 +301,26 @@ function responder(
   obligacionId: string,
   deudorId: string,
   ahora: Date,
+  opciones: { reconocimientoDeBaja?: boolean; autorizadoPorCompuerta?: boolean } = {},
 ): void {
+  if (!opciones.autorizadoPorCompuerta) {
+    const permiso = puedeEscribirle(estado, conversacion, deudorId)
+    const exento =
+      opciones.reconocimientoDeBaja === true && !permiso.puede && permiso.motivo === 'opt_out'
+
+    if (!permiso.puede && !exento) {
+      // `agregarPasoSiCambia` y no `agregarPaso`: si el deudor escribe cinco
+      // veces con el agente pausado, la traza tiene que decirlo una vez, no
+      // cinco. Una traza repetida esconde lo que sí pasó entre medio.
+      agregarPasoSiCambia(estado, conversacion, {
+        herramienta: permiso.motivo === 'agente_pausado' ? 'agentePausado' : 'optOut',
+        detalle: 'Se descartó un mensaje saliente antes de enviarlo.',
+        estado: 'bloqueado',
+      })
+      return
+    }
+  }
+
   agregarMensaje(estado, conversacion, { de: 'agente', texto })
   registrarContacto(estado, {
     clienteId,
@@ -292,6 +375,14 @@ export function aplicarPago(referencia: string): { ok: boolean; motivo?: string 
   )
   if (!conversacion) return { ok: true }
 
+  // El permiso se evalúa acá, antes de que `estadoCaso` pase a 'pagado'.
+  //
+  // En la demo `estadoCaso` hace de dos cosas a la vez: en qué va el caso y
+  // quién lo está manejando. Al marcarlo 'pagado' se pierde el dato de que un
+  // asesor tenía el hilo, y el aviso salía encima de él. En el esquema real son
+  // dos columnas distintas (`estado` y `agente_pausado`) justamente por esto.
+  const permisoPrevio = puedeEscribirle(estado, conversacion, obligacion.deudorId)
+
   conversacion.pago = pago
   conversacion.estadoCaso = saldoNuevo === 0 ? 'pagado' : 'acuerdo'
   agregarPaso(estado, conversacion, {
@@ -302,6 +393,16 @@ export function aplicarPago(referencia: string): { ok: boolean; motivo?: string 
       (pago.atribuidoAlAgente ? ' Atribuido al agente.' : ''),
     estado: 'ok',
   })
+
+  if (!permisoPrevio.puede) {
+    agregarPasoSiCambia(estado, conversacion, {
+      herramienta: permisoPrevio.motivo === 'agente_pausado' ? 'agentePausado' : 'optOut',
+      detalle: 'Pago aplicado. No se le avisa al deudor por este canal.',
+      estado: 'bloqueado',
+    })
+    void espejarEnChatwoot(estado, conversacion)
+    return { ok: true }
+  }
 
   const confirmacion =
     saldoNuevo === 0

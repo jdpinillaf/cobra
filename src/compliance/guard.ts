@@ -184,7 +184,18 @@ export function evaluar(solicitud: SolicitudEnvio): Decision {
 
   // --- Frecuencia: se cuenta cruzando canales, nunca por canal ---
 
-  const previos = contactosQueCuentan(solicitud.contactosDelDeudor)
+  // Se descartan los contactos con fecha ilegible antes de contar.
+  //
+  // Un `timestamp` que no parsea llega de la vida real: una fila de cartera mal
+  // formada, un webhook con un campo raro, una migración a medio hacer. Sin
+  // esto, `new Date('cualquier cosa')` produce un Invalid Date y `enBogota`
+  // lanza `RangeError`, y una sola fila mala deja al deudor sin poder ser
+  // evaluado nunca más. Es mejor contar de menos y seguir operando que romper
+  // la evaluación completa: el límite de frecuencia protege al deudor, y un
+  // deudor sin evaluar no queda protegido, queda sin sistema.
+  const previos = contactosQueCuentan(solicitud.contactosDelDeudor).filter((c) =>
+    Number.isFinite(new Date(c.timestamp).getTime()),
+  )
   const instanteMs = ahora.getTime()
 
   const hoy = previos.filter((c) => enBogota(new Date(c.timestamp)).fecha === t.fecha)
