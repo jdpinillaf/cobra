@@ -14,7 +14,8 @@
     "test:cov": "vitest run --coverage --exclude 'src/e2e/**'",
     "typecheck": "tsc --noEmit",
     "auditoria": "tsx scripts/auditoria.mts",
-    "test:e2e": "vitest run src/e2e"
+    "test:e2e": "vitest run src/e2e",
+    "verificar-db": "tsx scripts/verificar-db.mts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.36",
@@ -24,6 +25,7 @@
     "libphonenumber-js": "^1.13.10",
     "next": "16.3.0",
     "papaparse": "^5.5.4",
+    "pg": "^8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "three": "^0.185.1",
@@ -37,6 +39,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/papaparse": "^5.5.2",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/three": "^0.185.4",

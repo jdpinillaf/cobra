@@ -92,6 +92,14 @@ const ESTADOS_META: Record<string, ResultadoEnvio> = {
 export interface CambioEstado {
   /** `wamid`. Es lo que amarra este evento con el `Contacto` que lo originó. */
   idProveedor: string
+  /**
+   * Número que recibió el evento, y por lo tanto de qué cliente es.
+   *
+   * Va por evento y no por payload porque Meta agrupa en una sola entrega los
+   * eventos de todos los números de una misma WABA: un lote puede traer dos
+   * clientes mezclados. `null` si el payload no trae `metadata`.
+   */
+  phoneNumberId: string | null
   estado: ResultadoEnvio
   ocurrioEn: string
   /** Categoría con la que Meta realmente facturó, que puede no ser la que se declaró. */
@@ -104,6 +112,8 @@ export interface CambioEstado {
 
 export interface MensajeEntrante {
   idProveedor: string
+  /** Ver `CambioEstado.phoneNumberId`. */
+  phoneNumberId: string | null
   /** E.164 **con** `+`. Meta lo manda sin él. */
   deTelefono: string
   cuerpo: string
@@ -130,6 +140,9 @@ export function interpretarEstados(payload: unknown): CambioEstado[] {
       const primerError = arreglo(s.errors)[0]
       salida.push({
         idProveedor: String(s.id),
+        phoneNumberId: valor.metadata?.phone_number_id
+          ? String(valor.metadata.phone_number_id)
+          : null,
         estado,
         ocurrioEn: desdeUnix(s.timestamp),
         categoria: categoriaFacturable(s.pricing?.category),
@@ -156,6 +169,9 @@ export function interpretarEntrantes(payload: unknown): MensajeEntrante[] {
       if (!m?.id || !m?.from) continue
       salida.push({
         idProveedor: String(m.id),
+        phoneNumberId: valor.metadata?.phone_number_id
+          ? String(valor.metadata.phone_number_id)
+          : null,
         deTelefono: `+${String(m.from).replace(/^\+/, '')}`,
         cuerpo: cuerpoDelMensaje(m),
         tipo: String(m.type ?? 'desconocido'),
@@ -212,6 +228,21 @@ function arreglo<T>(v: T[] | undefined | null): T[] {
  * Meta manda por el mismo webhook cambios de calidad del número, de plantillas
  * y de la cuenta. Procesarlos como si fueran mensajes produce basura.
  */
+/**
+ * Los `phone_number_id` presentes en el payload, sin repetir.
+ *
+ * Sirve para resolver los tenants de una sola consulta antes de procesar nada,
+ * en vez de una por mensaje.
+ */
+export function numerosDelPayload(payload: unknown): string[] {
+  const vistos = new Set<string>()
+  for (const valor of valoresDeMensajes(payload)) {
+    const id = valor.metadata?.phone_number_id
+    if (id) vistos.add(String(id))
+  }
+  return [...vistos]
+}
+
 function valoresDeMensajes(payload: unknown): ValorCrudo[] {
   const p = payload as { entry?: Array<{ changes?: Array<{ field?: string; value?: ValorCrudo }> }> }
   const salida: ValorCrudo[] = []
@@ -225,6 +256,8 @@ function valoresDeMensajes(payload: unknown): ValorCrudo[] {
 }
 
 interface ValorCrudo {
+  /** Identifica al número que recibió el evento. Es el discriminador de tenant. */
+  metadata?: { phone_number_id?: string; display_phone_number?: string }
   statuses?: EstadoCrudo[]
   messages?: MensajeCrudo[]
   contacts?: Array<{ wa_id?: string; profile?: { name?: string } }>

@@ -52,6 +52,19 @@ export async function crearBaseDePrueba(): Promise<BaseDePrueba> {
     async exec(sql: string) {
       await pg.exec(sql)
     },
+    async transaccion<T>(fn: (tx: Db) => Promise<T>) {
+      // PGlite es de una sola conexión, así que BEGIN/COMMIT explícitos bastan
+      // y son el mismo SQL que va a correr el adaptador de `pg`.
+      await pg.exec('BEGIN')
+      try {
+        const r = await fn(db)
+        await pg.exec('COMMIT')
+        return r
+      } catch (e) {
+        await pg.exec('ROLLBACK')
+        throw e
+      }
+    },
   }
 
   for (const archivo of readdirSync(MIGRACIONES).filter((f) => f.endsWith('.sql')).sort()) {
