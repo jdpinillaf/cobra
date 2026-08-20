@@ -24,6 +24,19 @@ const dir = join(process.cwd(), 'supabase', 'migrations')
 await db.exec(`CREATE TABLE IF NOT EXISTS migraciones_aplicadas (
   archivo text PRIMARY KEY, aplicada_en timestamptz NOT NULL DEFAULT now())`)
 
+// La bitácora de migraciones no es dato de nadie, pero `app` tenía permiso de
+// escritura sobre ella por el GRANT de más abajo, que es sobre ALL TABLES. Un
+// borrado ahí hace que la próxima corrida intente reaplicar un ALTER que ya
+// existe, y la migración falla a mitad.
+//
+// RLS con una política que no deja ver nada: el dueño de la tabla la sigue
+// leyendo —RLS no aplica al dueño— y `app` no la toca. Así además la bitácora
+// cumple la misma regla que el resto y no hace falta exceptuarla del chequeo.
+await db.exec(`
+  ALTER TABLE migraciones_aplicadas ENABLE ROW LEVEL SECURITY;
+  DROP POLICY IF EXISTS solo_el_migrador ON migraciones_aplicadas;
+  CREATE POLICY solo_el_migrador ON migraciones_aplicadas USING (false);`)
+
 const aplicadas = new Set(
   (await db.query<{ archivo: string }>('SELECT archivo FROM migraciones_aplicadas')).map(
     (f) => f.archivo,
@@ -52,12 +65,23 @@ await db.exec(`
   GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app;
   GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app;`)
 
+// Y la membresía, que es lo que faltaba.
+//
+// `conTenant` hace `SET LOCAL ROLE app` para que RLS se evalúe de verdad, y en
+// Postgres eso exige ser **miembro** del rol: tener los GRANT de datos no
+// alcanza. Sin esto la base respondía «permission denied to set role "app"» y
+// todo lo que pasa por `conTenant` —el webhook de WhatsApp, entero— fallaba.
+//
+// No se notaba porque el webhook devuelve 200 aunque adentro reviente, para no
+// hacer que Meta reintente en bucle. O sea que habría fallado en silencio.
+await db.exec(`GRANT app TO CURRENT_USER`)
+
 const [rol] = await db.query<{ rolbypassrls: boolean }>(
   `SELECT rolbypassrls FROM pg_roles WHERE rolname = 'app'`,
 )
 const sinPolitica = await db.query<{ relname: string }>(`
   SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-   WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname <> 'migraciones_aplicadas'
+   WHERE n.nspname = 'public' AND c.relkind = 'r'
      AND (NOT c.relrowsecurity
           OR NOT EXISTS (SELECT 1 FROM pg_policies p
                          WHERE p.schemaname = 'public' AND p.tablename = c.relname))`)
