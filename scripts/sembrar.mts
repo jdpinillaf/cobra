@@ -61,22 +61,35 @@ await db.query(
 
 asegurarSecreto()
 
-// Usuario real con clave conocida, en vez de un atajo que saltee el login en
+// Usuario con clave conocida, en vez de un atajo que saltee el login en
 // desarrollo. Un bypass "solo en dev" es lo que termina en producción el día que
 // alguien se equivoca con una variable de entorno.
-await db.query(
-  `INSERT INTO tenant_usuarios (tenant_id, email, nombre, hash_clave, rol)
-   VALUES ($1, 'admin@tornillo.co', 'Marcela Ruiz', $2, 'admin')
-   ON CONFLICT (tenant_id, email) DO UPDATE SET hash_clave = EXCLUDED.hash_clave`,
-  [TENANT_DEV, await hashearClave(CLAVE_DEV)],
-)
+//
+// Y por eso mismo NO se crea contra una base real: una clave que está escrita en
+// el repositorio, en una base a la que se llega desde internet, es una cuenta
+// abierta. Contra `DATABASE_URL` los usuarios se crean con `pnpm crear-usuario`,
+// que genera la clave y la muestra una sola vez.
+const esBaseReal = Boolean(process.env.DATABASE_URL)
+if (esBaseReal) {
+  console.log('\n  Base real detectada: no se crea el usuario de desarrollo.')
+  console.log('  Creá los usuarios con `pnpm crear-usuario <email> "<nombre>" admin`.')
+} else {
+  await db.query(
+    `INSERT INTO tenant_usuarios (tenant_id, email, nombre, hash_clave, rol)
+     VALUES ($1, 'admin@tornillo.co', 'Marcela Ruiz', $2, 'admin')
+     ON CONFLICT (tenant_id, email) DO UPDATE SET hash_clave = EXCLUDED.hash_clave`,
+    [TENANT_DEV, await hashearClave(CLAVE_DEV)],
+  )
+}
 
 // Equipo del cliente, para que la bandeja tenga a quién asignarle.
 for (const u of EQUIPO) {
   await db.query(
     `INSERT INTO tenant_usuarios (id, tenant_id, email, nombre, hash_clave)
      VALUES ($1,$2,$3,$4,$5) ON CONFLICT (tenant_id, email) DO NOTHING`,
-    [u.id, TENANT_DEV, u.email, u.nombre, await hashearClave(CLAVE_DEV)],
+    // Sin clave utilizable: existen para poder asignarles hilos, no para entrar.
+    // Quien tenga que entrar se crea con `pnpm crear-usuario`.
+    [u.id, TENANT_DEV, u.email, u.nombre, esBaseReal ? 'sin-clave' : await hashearClave(CLAVE_DEV)],
   )
 }
 
@@ -183,8 +196,10 @@ console.log(`\nsaldo total  ${new Intl.NumberFormat('es-CO', {
   style: 'currency', currency: 'COP', maximumFractionDigits: 0,
 }).format(saldo)}\n`)
 console.log(`  pnpm dev  →  http://localhost:3000/consola/entrar`)
-console.log(`  usuario   admin@tornillo.co`)
-console.log(`  clave     ${CLAVE_DEV}`)
+if (!esBaseReal) {
+  console.log(`  usuario   admin@tornillo.co`)
+  console.log(`  clave     ${CLAVE_DEV}`)
+}
 console.log(`\n  simular un mensaje del deudor:`)
 console.log(`  pnpm simular "${obligaciones[0]?.telefono ?? '+573001112233'}" "ya pagué ayer"\n`)
 process.exit(0)
