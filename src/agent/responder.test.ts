@@ -140,6 +140,14 @@ describe('responderEntrante', () => {
     )
     expect(bloqueado.motivo_bloqueo).toContain('obligacion_cerrada')
     expect(bloqueado.cuerpo).toBe('')
+
+    // Y el paso en la traza, igual que en la demo. Sin él la consola muestra un
+    // hueco en la conversación sin decir por qué.
+    const [paso] = await base.db.query<{ paso: string; decision: string }>(
+      `SELECT paso, decision FROM agent_events WHERE tenant_id = $1 AND paso = 'guardLey2300'`,
+      [TENANT],
+    )
+    expect(paso.decision).toBe('bloqueado')
   })
 
   it('con el agente pausado no llama al modelo ni escribe nada', async () => {

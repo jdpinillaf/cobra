@@ -73,6 +73,16 @@ export async function responderEntrante(
 
   if (!compuerta.responder) {
     if (compuerta.razon === 'ley') {
+      // El paso de traza va junto con el contacto, igual que en el pipeline de
+      // la demo. Sin él, la consola muestra un hueco en la conversación sin
+      // decir por qué, y la pantalla que explica el cumplimiento es justo la
+      // que se le vende al cliente. Que la demo lo tuviera y producción no era
+      // una demo enseñando algo que el producto no hace.
+      await puerto.anotarPaso({
+        herramienta: 'guardLey2300',
+        detalle: `${compuerta.motivo.replace(/_/g, ' ')} — ${compuerta.detalle}`,
+        estado: 'bloqueado',
+      })
       // Un intento que la ley impidió se escribe. Es la evidencia documental, y
       // una pausa no: escribirla inventaría un intento de contacto que nunca
       // hubo y ensuciaría el reporte de cumplimiento con decisiones operativas.
