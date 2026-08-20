@@ -113,9 +113,9 @@ export class RepositorioPostgres implements RepositorioWebhook {
    * propósito — un desconocido escribiendo al número de la empresa es normal, y
    * no puede hacer que Meta reintente el lote entero.
    */
-  async registrarEntrante(mensaje: MensajeEntrante): Promise<void> {
+  async registrarEntrante(mensaje: MensajeEntrante): Promise<{ conversacionId: string } | null> {
     const deudorId = await this.deudorPorTelefono(mensaje.deTelefono)
-    if (!deudorId) return
+    if (!deudorId) return null
 
     const obligacionId = await this.obligacionAbierta(deudorId)
     const { id: conversacionId } = await abrirOReutilizar(this.db, this.tenantId, {
@@ -146,6 +146,8 @@ export class RepositorioPostgres implements RepositorioWebhook {
         [this.tenantId, mensaje.idProveedor, mensaje.media.id, mensaje.media.mimeType],
       )
     }
+
+    return { conversacionId }
   }
 
   async abrirVentanaServicio(telefono: string, entranteEn: string): Promise<void> {

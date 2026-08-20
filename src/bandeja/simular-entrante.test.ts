@@ -55,6 +55,7 @@ describe('simularEntrante', () => {
       tenantId: TENANT,
       conversacionId,
       texto: 'ya pagué ayer',
+      responder: false,
     })
     expect(r.ok).toBe(true)
 
@@ -64,6 +65,44 @@ describe('simularEntrante', () => {
     )
     expect(contacto.direccion).toBe('entrante')
     expect(contacto.cuerpo).toBe('ya pagué ayer')
+  })
+
+  it('el agente contesta, que es el sentido del botón', async () => {
+    // Sin clave de modelo el cerebro cae a `responderGuionado`, que es su
+    // respaldo de producción. La respuesta es fija pero el camino es el real:
+    // compuerta, herramientas, proveedor y `Contacto` saliente registrado.
+    await simularEntrante(base.db, {
+      tenantId: TENANT,
+      conversacionId,
+      texto: 'ya pagué eso, revisen bien por favor',
+    })
+
+    const contactos = await base.db.query<{ direccion: string; cuerpo: string }>(
+      `SELECT direccion, cuerpo FROM contactos WHERE tenant_id = $1 ORDER BY ocurrido_en, direccion`,
+      [TENANT],
+    )
+    const saliente = contactos.find((c) => c.direccion === 'saliente')
+    expect(saliente).toBeDefined()
+    expect(saliente!.cuerpo).not.toBe('')
+  })
+
+  it('con el agente pausado el deudor escribe y nadie le contesta', async () => {
+    // La pausa es una decisión operativa: un asesor tomó el hilo. Que el bot
+    // conteste encima es el bug que la bandeja vino a cerrar.
+    await base.db.query(
+      `UPDATE conversaciones SET agente_pausado = true WHERE tenant_id = $1 AND id = $2`,
+      [TENANT, conversacionId],
+    )
+
+    await simularEntrante(base.db, { tenantId: TENANT, conversacionId, texto: 'hola?' })
+
+    const salientes = await base.db.query(
+      `SELECT id FROM contactos WHERE tenant_id = $1 AND direccion = 'saliente'`,
+      [TENANT],
+    )
+    // Ni siquiera un bloqueado: una pausa no es un intento de contacto, y
+    // escribirlo inventaría evidencia para el reporte de cumplimiento.
+    expect(salientes).toHaveLength(0)
   })
 
   it('lo marca como simulado, para siempre', async () => {
@@ -153,7 +192,13 @@ describe('simularEntrante', () => {
 
   it('el mismo wamid dos veces entra una sola vez', async () => {
     // La idempotencia tampoco se reimplementa acá: es la de `procesarWebhook`.
-    const args = { tenantId: TENANT, conversacionId, texto: 'hola', idProveedor: 'wamid.FIJO' }
+    const args = {
+      tenantId: TENANT,
+      conversacionId,
+      texto: 'hola',
+      idProveedor: 'wamid.FIJO',
+      responder: false,
+    }
     await simularEntrante(base.db, args)
     await simularEntrante(base.db, args)
 

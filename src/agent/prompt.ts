@@ -1,4 +1,4 @@
-import type { Cliente, Deudor, LimitesNegociacion, Obligacion } from '@/domain/types'
+import type { Deudor, LimitesNegociacion, Obligacion } from '@/domain/types'
 import { CONTEXTO_POR_TRAMO } from './politicas'
 
 /**
@@ -21,7 +21,9 @@ const cop = (n: number) =>
   }).format(n)
 
 export function construirPrompt(params: {
-  cliente: Cliente
+  /** Solo el nombre: es lo único que el prompt nombra, y pedir el `Cliente`
+   *  entero ataba el prompt a la forma que tiene la cartera en memoria. */
+  cliente: { nombre: string }
   deudor: Deudor
   obligacion: Obligacion
   limites: LimitesNegociacion

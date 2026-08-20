@@ -4,7 +4,8 @@ import { tarifaDe } from '@/channels/provider'
 import { abrirVentana, requierePlantilla } from '@/channels/ventana-servicio'
 import { esAtribuibleAlAgente } from '@/payments/wompi'
 import { evaluarRespuesta } from '@/agent/compuerta'
-import { pensar } from '@/agent/cerebro'
+import { limitesDelTramo, pensar } from '@/agent/cerebro'
+import { PuertoEnMemoria } from '@/agent/puerto'
 import { espejarEnChatwoot } from '@/integrations/chatwoot'
 import {
   abrirConversacion,
@@ -253,7 +254,15 @@ export async function recibirMensaje(params: {
   // lo que quede afuera, que es el caso en que ni el fallback funciona.
   let respuesta: Awaited<ReturnType<typeof pensar>>
   try {
-    respuesta = await pensar({ estado, conversacion, urlBase: params.urlBase })
+    respuesta = await pensar({
+      puerto: new PuertoEnMemoria(estado, conversacion, deudor, obligacion),
+      limites: limitesDelTramo(estado.cartera.cliente.limitesPorTramo, obligacion.tramo),
+      turnos: conversacion.mensajes
+        .filter((m) => m.de !== 'sistema')
+        .map((m) => ({ de: m.de as 'deudor' | 'agente', texto: m.texto })),
+      cliente: estado.cartera.cliente,
+      urlBase: params.urlBase,
+    })
   } catch (error) {
     agregarPaso(estado, conversacion, {
       herramienta: 'cerebro',

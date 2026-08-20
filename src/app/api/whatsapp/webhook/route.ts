@@ -1,3 +1,5 @@
+import { after } from 'next/server'
+import { responderEntrante } from '@/agent/responder'
 import {
   filtrarPorNumero,
   numerosDelPayload,
@@ -36,10 +38,17 @@ import { obtenerDb } from '@/repo/conexion'
  * un número dado de baja, o una suscripción vieja que Meta todavía no soltó, y
  * no es motivo para devolver error y hacer que reintente el lote entero.
  */
-async function procesarPorTenant(payload: unknown): Promise<{ atendidos: number; ignorados: number }> {
+interface Pendiente {
+  tenantId: string
+  conversacionId: string
+}
+
+async function procesarPorTenant(
+  payload: unknown,
+): Promise<{ ignorados: number; pendientes: Pendiente[] }> {
   const db = await obtenerDb()
-  let atendidos = 0
   let ignorados = 0
+  const pendientes: Pendiente[] = []
 
   for (const numero of numerosDelPayload(payload)) {
     const [tenant] = await db.query<{ id: string }>(
@@ -51,13 +60,49 @@ async function procesarPorTenant(payload: unknown): Promise<{ atendidos: number;
       continue
     }
 
-    await conTenant(db, tenant.id, (tx) =>
+    const resumen = await conTenant(db, tenant.id, (tx) =>
       procesarWebhook(filtrarPorNumero(payload, numero), new RepositorioPostgres(tx, tenant.id)),
     )
-    atendidos += 1
+    for (const hilo of resumen.aResponder) {
+      pendientes.push({ tenantId: tenant.id, conversacionId: hilo.conversacionId })
+    }
   }
 
-  return { atendidos, ignorados }
+  return { ignorados, pendientes }
+}
+
+/**
+ * El agente contesta **después** de la respuesta, no adentro.
+ *
+ * Dos razones, y las dos son de las que se pagan caras:
+ *
+ * - Meta reintenta si el 200 tarda, y degrada la entrega de la cuenta si eso se
+ *   vuelve costumbre. Un turno del modelo son segundos.
+ * - `procesarWebhook` corre dentro de `conTenant`, o sea dentro de una
+ *   transacción con una conexión reservada. Esperar al modelo ahí la deja
+ *   abierta todo ese rato, y el pool tiene fondo.
+ *
+ * Por eso corre fuera de la transacción y fuera del ciclo de la respuesta. Si
+ * falla, el entrante y la ventana ya quedaron escritos: se pierde la respuesta
+ * del agente, no la evidencia.
+ */
+function responderDespues(pendientes: Pendiente[], urlBase: string): void {
+  if (pendientes.length === 0) return
+
+  after(async () => {
+    const db = await obtenerDb()
+    for (const p of pendientes) {
+      try {
+        await responderEntrante(db, {
+          tenantId: p.tenantId,
+          conversacionId: p.conversacionId,
+          urlBase,
+        })
+      } catch (e) {
+        console.error('[whatsapp-webhook] el agente no pudo contestar', p.conversacionId, e)
+      }
+    }
+  })
 }
 
 function entorno(): { appSecret: string; tokenVerificacion: string } | null {
@@ -111,10 +156,11 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const { ignorados } = await procesarPorTenant(payload)
+    const { ignorados, pendientes } = await procesarPorTenant(payload)
     if (ignorados > 0) {
       console.warn(`[whatsapp-webhook] ${ignorados} número(s) sin tenant activo`)
     }
+    responderDespues(pendientes, new URL(request.url).origin)
   } catch (e) {
     // Se responde 200 igual. Meta reintenta ante cualquier no-2xx y, si el
     // payload es el que rompe, el reintento vuelve a romper: se entra en un

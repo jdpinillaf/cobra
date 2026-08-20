@@ -25,8 +25,15 @@ export interface RepositorioWebhook {
   marcarProcesado(idProveedor: string): Promise<void>
   /** Escribe el estado real sobre el `Contacto` que tenga ese `wamid`. */
   actualizarEstado(cambio: CambioEstado): Promise<void>
-  /** Registra el entrante como `Contacto` con `direccion: 'entrante'`. */
-  registrarEntrante(mensaje: MensajeEntrante): Promise<void>
+  /**
+   * Registra el entrante como `Contacto` con `direccion: 'entrante'`.
+   *
+   * Devuelve en qué hilo quedó, o `null` si el número no es de ningún deudor
+   * conocido. El id sube hasta el llamador porque es lo que necesita para
+   * hacerlo contestar, y buscarlo de nuevo por teléfono sería repetir la
+   * consulta que esta función ya hizo.
+   */
+  registrarEntrante(mensaje: MensajeEntrante): Promise<{ conversacionId: string } | null>
   /** Abre o renueva la ventana de servicio de 24 h del deudor. */
   abrirVentanaServicio(telefono: string, entranteEn: string): Promise<void>
   /** Escribe `Consentimiento.revocadoEn`. El guard ya lo respeta. */
@@ -47,6 +54,15 @@ export interface ResumenWebhook {
   optOuts: number
   numerosErrados: number
   duplicadosIgnorados: number
+  /**
+   * Los hilos donde entró un mensaje **nuevo**, en orden.
+   *
+   * Es lo que el llamador necesita para hacer contestar al agente, y sale de
+   * acá y no de un `count` porque los duplicados de Meta no se responden dos
+   * veces. Procesar no es responder: esta función registra, y quien la llama
+   * decide qué hacer con lo registrado.
+   */
+  aResponder: Array<{ conversacionId: string }>
 }
 
 /**
@@ -67,6 +83,7 @@ export async function procesarWebhook(
     optOuts: 0,
     numerosErrados: 0,
     duplicadosIgnorados: 0,
+    aResponder: [],
   }
 
   for (const cambio of interpretarEstados(payload)) {
@@ -90,7 +107,7 @@ export async function procesarWebhook(
       continue
     }
 
-    await repo.registrarEntrante(mensaje)
+    const hilo = await repo.registrarEntrante(mensaje)
     await repo.abrirVentanaServicio(mensaje.deTelefono, mensaje.ocurrioEn)
 
     if (detectarOptOut(mensaje.cuerpo)) {
@@ -109,6 +126,7 @@ export async function procesarWebhook(
 
     await repo.marcarProcesado(llave)
     resumen.entrantesRegistrados += 1
+    if (hilo) resumen.aResponder.push(hilo)
   }
 
   return resumen
@@ -138,8 +156,9 @@ export class RepositorioEnMemoria implements RepositorioWebhook {
   async actualizarEstado(cambio: CambioEstado): Promise<void> {
     this.estados.push(cambio)
   }
-  async registrarEntrante(mensaje: MensajeEntrante): Promise<void> {
+  async registrarEntrante(mensaje: MensajeEntrante): Promise<{ conversacionId: string } | null> {
     this.entrantes.push(mensaje)
+    return null
   }
   async abrirVentanaServicio(telefono: string, entranteEn: string): Promise<void> {
     this.ventanas.set(telefono, entranteEn)

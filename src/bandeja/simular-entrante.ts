@@ -1,3 +1,4 @@
+import { responderEntrante } from '@/agent/responder'
 import { construirPayloadEntrante } from '@/channels/payload-simulado'
 import { procesarWebhook } from '@/channels/procesador-webhook'
 import { RepositorioPostgres } from '@/repo/cobranza/webhook-pg'
@@ -43,6 +44,15 @@ export async function simularEntrante(
     ahora?: Date
     /** Inyectable para que dos llamadas en el mismo milisegundo no colisionen en los tests. */
     idProveedor?: string
+    /** Origen público, para el link de pago que arme el agente. */
+    urlBase?: string
+    /**
+     * `false` deja el entrante escrito y no hace contestar al agente.
+     *
+     * Lo usan los tests que miran solo el registro. En la consola siempre
+     * contesta: el sentido del botón es ver la conversación, no llenar la tabla.
+     */
+    responder?: boolean
   },
 ): Promise<ResultadoSimulacion> {
   const texto = params.texto.trim()
@@ -82,10 +92,30 @@ export async function simularEntrante(
     nombrePerfil: expediente.deudorNombre,
   })
 
-  await procesarWebhook(
+  const resumen = await procesarWebhook(
     payload,
     new RepositorioPostgres(db, params.tenantId, { proveedor: 'simulado' }),
   )
+
+  // A diferencia del webhook de Meta, acá se espera al agente en vez de dejarlo
+  // para después: del otro lado hay una persona mirando la pantalla, y una
+  // respuesta que aparece cuando ya se fue no sirve para mostrar nada.
+  if (params.responder !== false) {
+    for (const hilo of resumen.aResponder) {
+      try {
+        await responderEntrante(db, {
+          tenantId: params.tenantId,
+          conversacionId: hilo.conversacionId,
+          ahora,
+          urlBase: params.urlBase ?? 'https://ponox.co',
+        })
+      } catch (e) {
+        // El entrante ya quedó escrito. Que el agente no conteste es un problema
+        // menor que perder el mensaje, así que no se propaga.
+        console.error('[simular-entrante] el agente no pudo contestar', e)
+      }
+    }
+  }
 
   return { ok: true }
 }

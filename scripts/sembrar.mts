@@ -60,10 +60,20 @@ await db.query(
    ON CONFLICT (id) DO UPDATE SET modo_demo = true`,
   [TENANT_DEV, EMPRESA],
 )
+// La cartera se genera acá arriba y no más abajo porque de ella salen también
+// los límites de negociación del cliente, que van en la fila de `tenant_cobranza`.
+const cartera = generarCartera({ cantidad, fechaCorte, semilla: 42 })
+
+// `limites_por_tramo` es lo que el agente tiene autorizado a ofrecer. La columna
+// existía y no la escribía nadie, así que el agente contra base caía siempre al
+// piso seguro —sin descuento, una sola cuota— y no podía negociar nada. Son los
+// mismos límites que usa la demo de la landing: un solo juego de reglas para los
+// dos caminos.
 await db.query(
-  `INSERT INTO tenant_cobranza (tenant_id, tier, cupo_mensajes_mes)
-   VALUES ($1, 'mediana', 12000) ON CONFLICT (tenant_id) DO NOTHING`,
-  [TENANT_DEV],
+  `INSERT INTO tenant_cobranza (tenant_id, tier, cupo_mensajes_mes, limites_por_tramo)
+   VALUES ($1, 'mediana', 12000, $2::jsonb)
+   ON CONFLICT (tenant_id) DO UPDATE SET limites_por_tramo = EXCLUDED.limites_por_tramo`,
+  [TENANT_DEV, JSON.stringify(cartera.cliente.limitesPorTramo)],
 )
 
 asegurarSecreto()
@@ -157,7 +167,6 @@ for (const [tramo, pasos] of CADENCIAS) {
 // sin él un mensaje entrante no se puede atribuir a nadie.
 await db.query(`UPDATE tenants SET phone_number_id = '10627' WHERE id = $1`, [TENANT_DEV])
 
-const cartera = generarCartera({ cantidad, fechaCorte, semilla: 42 })
 const resumen = await guardarCartera(db, TENANT_DEV, cartera)
 const obligaciones = await listarObligaciones(db, TENANT_DEV)
 

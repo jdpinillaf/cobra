@@ -3,14 +3,8 @@ import { z } from 'zod'
 import type { Acuerdo, LimitesNegociacion, Pago } from '@/domain/types'
 import { construirReferencia } from '@/payments/wompi'
 import { sumarDias } from '@/compliance/reloj-bogota'
-import {
-  agregarPaso,
-  contactosDelDeudor,
-  siguienteNonce,
-  type Conversacion,
-  type EstadoDemo,
-} from '@/demo/estado'
 import { buscarPoliticas } from './politicas'
+import type { PuertoAgente } from './puerto'
 
 /**
  * Las herramientas del agente.
@@ -27,8 +21,14 @@ import { buscarPoliticas } from './politicas'
  */
 
 export interface ContextoHerramientas {
-  estado: EstadoDemo
-  conversacion: Conversacion
+  /**
+   * De dónde salen los datos y a dónde van las escrituras.
+   *
+   * Antes acá venía el `EstadoDemo` entero, y las herramientas lo mutaban. Eso
+   * ataba las seis —las que aplican los límites de negociación— a que la
+   * conversación viviera en memoria del proceso, o sea a la demo de la landing.
+   */
+  puerto: PuertoAgente
   limites: LimitesNegociacion
   /** `YYYY-MM-DD` en Bogotá. */
   fechaHoy: string
@@ -51,7 +51,7 @@ const cop = (n: number) =>
  * rastro. Si el respaldo tuviera su propia lógica, sería el único camino del
  * sistema que nadie valida — y es justo el que corre cuando algo ya salió mal.
  */
-export function registrarAcuerdo(
+export async function registrarAcuerdo(
   ctx: ContextoHerramientas,
   entrada: {
     tipo: Acuerdo['tipo']
@@ -60,14 +60,13 @@ export function registrarAcuerdo(
     descuentoPct: number
     primeraCuotaEl: string
   },
-): { aceptado: true; porCuota: number } | { aceptado: false; motivo: string } {
-  const { estado, conversacion, limites, fechaHoy } = ctx
-  const obligacion = estado.cartera.obligaciones.find((o) => o.id === conversacion.obligacionId)
-  if (!obligacion) return { aceptado: false, motivo: 'No hay obligación asociada.' }
+): Promise<{ aceptado: true; porCuota: number } | { aceptado: false; motivo: string }> {
+  const { puerto, limites, fechaHoy } = ctx
+  const { obligacion } = puerto
 
   const rechazo = validarAcuerdo(entrada, limites, fechaHoy)
   if (rechazo) {
-    agregarPaso(estado, conversacion, {
+    await puerto.anotarPaso({
       herramienta: 'proponerAcuerdo',
       detalle: `Rechazado: ${rechazo}`,
       estado: 'bloqueado',
@@ -75,10 +74,9 @@ export function registrarAcuerdo(
     return { aceptado: false, motivo: rechazo }
   }
 
-  estado.secuencia += 1
   const ahora = new Date().toISOString()
-  conversacion.acuerdo = {
-    id: `acu_${estado.secuencia}`,
+  const acuerdo: Acuerdo = {
+    id: puerto.nuevoId('acu'),
     clienteId: obligacion.clienteId,
     obligacionId: obligacion.id,
     tipo: entrada.tipo,
@@ -100,11 +98,10 @@ export function registrarAcuerdo(
     aprobadoEn: ahora,
     motivoRechazo: null,
   }
-  conversacion.estadoCaso = 'acuerdo'
-  conversacion.version += 1
+  await puerto.guardarAcuerdo(acuerdo)
 
   const porCuota = Math.round(entrada.montoAcordado / entrada.numeroCuotas)
-  agregarPaso(estado, conversacion, {
+  await puerto.anotarPaso({
     herramienta: 'proponerAcuerdo',
     detalle: `${entrada.numeroCuotas} × ${cop(porCuota)} desde el ${entrada.primeraCuotaEl}${entrada.descuentoPct ? ` · ${entrada.descuentoPct}% dto.` : ''}`,
     estado: 'ok',
@@ -114,17 +111,16 @@ export function registrarAcuerdo(
 }
 
 /** Crea el cobro y devuelve la URL. Mismo motivo que `registrarAcuerdo` para estar suelta. */
-export function emitirLinkDePago(
+export async function emitirLinkDePago(
   ctx: ContextoHerramientas,
   montoCop: number,
-): { url: string; referencia: string } | null {
-  const { estado, conversacion, urlBase } = ctx
-  const obligacion = estado.cartera.obligaciones.find((o) => o.id === conversacion.obligacionId)
-  if (!obligacion) return null
+): Promise<{ url: string; referencia: string }> {
+  const { puerto, urlBase } = ctx
+  const { obligacion } = puerto
 
-  const referencia = construirReferencia(obligacion.id, siguienteNonce(estado))
+  const referencia = construirReferencia(obligacion.id, puerto.nonce())
   const pago: Pago = {
-    id: `pag_${referencia}`,
+    id: puerto.nuevoId('pag'),
     clienteId: obligacion.clienteId,
     obligacionId: obligacion.id,
     referencia,
@@ -136,11 +132,9 @@ export function emitirLinkDePago(
     pagadoEn: null,
     atribuidoAlAgente: false,
   }
-  estado.pagos.set(referencia, pago)
-  conversacion.pago = pago
-  conversacion.version += 1
+  await puerto.guardarPago(pago)
 
-  agregarPaso(estado, conversacion, {
+  await puerto.anotarPaso({
     herramienta: 'generarLinkDePago',
     detalle: `${cop(montoCop)} · referencia ${referencia}`,
     estado: 'ok',
@@ -161,16 +155,15 @@ function dominioDePagos(urlBase: string): string {
 }
 
 export function crearHerramientas(ctx: ContextoHerramientas) {
-  const { estado, conversacion, limites, fechaHoy, urlBase } = ctx
+  const { puerto, limites, fechaHoy, urlBase } = ctx
   void limites
   void fechaHoy
   void urlBase
 
-  const obligacion = estado.cartera.obligaciones.find((o) => o.id === conversacion.obligacionId)
-  const deudor = estado.cartera.deudores.find((d) => d.id === conversacion.deudorId)
+  const { obligacion, deudor } = puerto
 
   const paso = (herramienta: string, detalle: string, estadoPaso: 'ok' | 'bloqueado' = 'ok') =>
-    agregarPaso(estado, conversacion, { herramienta, detalle, estado: estadoPaso })
+    puerto.anotarPaso({ herramienta, detalle, estado: estadoPaso })
 
   return {
     consultarCartera: tool({
@@ -182,18 +175,12 @@ export function crearHerramientas(ctx: ContextoHerramientas) {
           .describe('Por qué necesitas el expediente. Una frase corta, para el registro.'),
       }),
       execute: async ({ motivo }) => {
-        if (!obligacion || !deudor) {
-          paso('consultarCartera', 'No se encontró la obligación', 'bloqueado')
-          return { encontrado: false as const }
-        }
-
-        const previos = contactosDelDeudor(estado, deudor.id)
-        const salientes = previos.filter((c) => c.direccion === 'saliente')
+        const salientes = puerto.contactosPrevios.filter((c) => c.direccion === 'saliente')
 
         // El motivo entra en el rastro para que cada consulta se distinga de la
         // anterior: cuatro líneas idénticas son ruido, cuatro líneas que dicen
         // para qué se consultó son el argumento de venta.
-        paso(
+        await paso(
           'consultarCartera',
           `${obligacion.numeroCredito} · ${cop(obligacion.saldoTotal)} · ${obligacion.diasMora} días — ${motivo}`,
         )
@@ -213,11 +200,11 @@ export function crearHerramientas(ctx: ContextoHerramientas) {
           estadoObligacion: obligacion.estado,
           contactosPrevios: salientes.length,
           ultimoContacto: salientes.at(-1)?.timestamp ?? null,
-          acuerdoVigente: conversacion.acuerdo
+          acuerdoVigente: puerto.acuerdoVigente
             ? {
-                cuotas: conversacion.acuerdo.numeroCuotas,
-                monto: conversacion.acuerdo.montoAcordado,
-                estado: conversacion.acuerdo.estado,
+                cuotas: puerto.acuerdoVigente.numeroCuotas,
+                monto: puerto.acuerdoVigente.montoAcordado,
+                estado: puerto.acuerdoVigente.estado,
               }
             : null,
         }
@@ -263,7 +250,7 @@ export function crearHerramientas(ctx: ContextoHerramientas) {
           .describe('Fecha de la primera cuota o del pago único, formato YYYY-MM-DD.'),
       }),
       execute: async (entrada) => {
-        const resultado = registrarAcuerdo(ctx, entrada)
+        const resultado = await registrarAcuerdo(ctx, entrada)
         if (!resultado.aceptado) {
           return {
             aceptado: false as const,
@@ -294,8 +281,7 @@ export function crearHerramientas(ctx: ContextoHerramientas) {
           .describe('Qué está pagando, en una línea. Ej: «primera cuota del acuerdo».'),
       }),
       execute: async ({ montoCop, concepto }) => {
-        const link = emitirLinkDePago(ctx, montoCop)
-        if (!link) return { generado: false as const, motivo: 'No hay obligación asociada.' }
+        const link = await emitirLinkDePago(ctx, montoCop)
 
         return {
           generado: true as const,
@@ -322,9 +308,8 @@ export function crearHerramientas(ctx: ContextoHerramientas) {
         resumen: z.string().describe('Qué necesita el asesor para retomar. Dos o tres frases.'),
       }),
       execute: async ({ motivo, resumen }) => {
-        conversacion.estadoCaso = 'humano'
-        conversacion.version += 1
-        paso('escalarAHumano', `${motivo.replace(/_/g, ' ')} — ${resumen}`)
+        await puerto.tomaUnHumano()
+        await paso('escalarAHumano', `${motivo.replace(/_/g, ' ')} — ${resumen}`)
         return {
           escalado: true as const,
           queHacer:
@@ -340,9 +325,8 @@ export function crearHerramientas(ctx: ContextoHerramientas) {
         loQueDijo: z.string().describe('La frase textual con la que lo dijo, para el registro.'),
       }),
       execute: async ({ loQueDijo }) => {
-        conversacion.estadoCaso = 'humano'
-        conversacion.version += 1
-        paso('marcarNumeroErrado', `«${loQueDijo}» — número marcado, gestión detenida`)
+        await puerto.marcarNumeroErrado(new Date().toISOString())
+        await paso('marcarNumeroErrado', `«${loQueDijo}» — número marcado, gestión detenida`)
         return {
           marcado: true as const,
           queHacer:

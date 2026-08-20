@@ -1,13 +1,7 @@
 import { generateText, isStepCount, type ModelMessage } from 'ai'
-import type { LimitesNegociacion } from '@/domain/types'
+import type { Deudor, LimitesNegociacion, Obligacion } from '@/domain/types'
 import { enBogota } from '@/compliance/reloj-bogota'
-import {
-  agregarPaso,
-  deudorPorId,
-  obligacionPorId,
-  type Conversacion,
-  type EstadoDemo,
-} from '@/demo/estado'
+import type { PuertoAgente } from './puerto'
 import {
   crearHerramientas,
   emitirLinkDePago,
@@ -35,33 +29,38 @@ export interface RespuestaCerebro {
   modo: 'llm' | 'guionado'
 }
 
+/** Un turno del hilo, en la forma mínima que el modelo necesita. */
+export interface TurnoDelHilo {
+  de: 'deudor' | 'agente'
+  texto: string
+}
+
 export async function pensar(params: {
-  estado: EstadoDemo
-  conversacion: Conversacion
+  puerto: PuertoAgente
+  /** Lo que autorizó el cliente para este tramo. */
+  limites: LimitesNegociacion
+  /** El hilo en orden cronológico, sin los mensajes de sistema. */
+  turnos: TurnoDelHilo[]
+  /** Nombre de la empresa que cobra. */
+  cliente: { nombre: string }
   urlBase: string
 }): Promise<RespuestaCerebro> {
-  const { estado, conversacion, urlBase } = params
+  const { puerto, limites, turnos, cliente, urlBase } = params
+  const { deudor, obligacion } = puerto
 
-  const deudor = deudorPorId(estado, conversacion.deudorId)
-  const obligacion = obligacionPorId(estado, conversacion.obligacionId)
-  if (!deudor || !obligacion) {
-    return { texto: 'No encuentro su información. Le paso el caso a un asesor.', modo: 'guionado' }
-  }
-
-  const limites = limitesDelTramo(estado, obligacion.tramo)
   const fechaHoy = enBogota(new Date()).fecha
-  const ctx: ContextoHerramientas = { estado, conversacion, limites, fechaHoy, urlBase }
+  const ctx: ContextoHerramientas = { puerto, limites, fechaHoy, urlBase }
 
   const elegido = process.env.CEREBRO === 'guionado' ? null : modeloDelCerebro()
   if (!elegido) {
-    return { texto: guion(ctx, deudor, obligacion), modo: 'guionado' }
+    return { texto: await guion(ctx, turnos, deudor, obligacion), modo: 'guionado' }
   }
 
   try {
     const { text } = await generateText({
       model: elegido.modelo,
-      system: construirPrompt({ cliente: estado.cartera.cliente, deudor, obligacion, limites, fechaHoy }),
-      messages: aMensajesDelModelo(conversacion),
+      system: construirPrompt({ cliente, deudor, obligacion, limites, fechaHoy }),
+      messages: aMensajesDelModelo(turnos),
       tools: crearHerramientas(ctx),
       // Sin `temperature`: ni gpt-5 ni claude-sonnet-5 la aceptan, y el SDK
       // avisa por consola en cada turno. El tono se controla desde el prompt.
@@ -78,12 +77,12 @@ export async function pensar(params: {
     // En vivo esto no puede propagarse: vale más una respuesta fija que un
     // mensaje de error en pantalla frente al cliente.
     console.error(`[cerebro] falló ${elegido.etiqueta}, cayendo a guionado:`, error)
-    agregarPaso(estado, conversacion, {
+    await puerto.anotarPaso({
       herramienta: 'cerebro',
       detalle: 'El modelo no respondió. Se usó la respuesta de respaldo.',
       estado: 'bloqueado',
     })
-    return { texto: guion(ctx, deudor, obligacion), modo: 'guionado' }
+    return { texto: await guion(ctx, turnos, deudor, obligacion), modo: 'guionado' }
   }
 }
 
@@ -95,16 +94,17 @@ export async function pensar(params: {
  * existe de verdad. Es la diferencia entre una red de seguridad y un cartel que
  * dice "red de seguridad".
  */
-function guion(
+async function guion(
   ctx: ContextoHerramientas,
-  deudor: NonNullable<ReturnType<typeof deudorPorId>>,
-  obligacion: NonNullable<ReturnType<typeof obligacionPorId>>,
-): string {
-  const { conversacion, limites, fechaHoy } = ctx
-  const ultimo = [...conversacion.mensajes].reverse().find((m) => m.de === 'deudor')
+  turnos: TurnoDelHilo[],
+  deudor: Deudor,
+  obligacion: Obligacion,
+): Promise<string> {
+  const { puerto, limites, fechaHoy } = ctx
+  const ultimo = [...turnos].reverse().find((m) => m.de === 'deudor')
 
-  const cuotaPactada = conversacion.acuerdo
-    ? Math.round(conversacion.acuerdo.montoAcordado / conversacion.acuerdo.numeroCuotas)
+  const cuotaPactada = puerto.acuerdoVigente
+    ? Math.round(puerto.acuerdoVigente.montoAcordado / puerto.acuerdoVigente.numeroCuotas)
     : null
 
   const { texto, accion } = responderGuionado(ultimo?.texto ?? '', {
@@ -116,7 +116,7 @@ function guion(
 
   switch (accion.tipo) {
     case 'acuerdo': {
-      registrarAcuerdo(ctx, {
+      await registrarAcuerdo(ctx, {
         tipo: 'cuotas',
         montoAcordado: accion.montoTotal,
         numeroCuotas: accion.numeroCuotas,
@@ -126,17 +126,12 @@ function guion(
       return texto
     }
     case 'link': {
-      const link = emitirLinkDePago(ctx, accion.montoCop)
-      // Sin link no se manda el marcador crudo: mejor una frase sin URL que un
-      // `{{link}}` en pantalla frente al cliente.
-      return link
-        ? texto.replace(MARCADOR_LINK, link.url)
-        : texto.replace(MARCADOR_LINK, '').trimEnd().replace(/:$/, '.')
+      const link = await emitirLinkDePago(ctx, accion.montoCop)
+      return texto.replace(MARCADOR_LINK, link.url)
     }
     case 'escalar': {
-      conversacion.estadoCaso = 'humano'
-      conversacion.version += 1
-      agregarPaso(ctx.estado, conversacion, {
+      await puerto.tomaUnHumano()
+      await puerto.anotarPaso({
         herramienta: 'escalarAHumano',
         detalle: 'Respaldo sin modelo: el caso pasa a una persona.',
         estado: 'ok',
@@ -154,22 +149,21 @@ function guion(
  * Los mensajes de un humano del equipo van como `assistant`: para el deudor son
  * la misma voz, y si fueran `user` el modelo creería que se los escribió él.
  */
-function aMensajesDelModelo(conversacion: Conversacion): ModelMessage[] {
-  return conversacion.mensajes
-    .filter((m) => m.de !== 'sistema')
-    .map((m): ModelMessage =>
-      m.de === 'deudor'
-        ? { role: 'user', content: m.texto }
-        : { role: 'assistant', content: m.texto },
-    )
+function aMensajesDelModelo(turnos: TurnoDelHilo[]): ModelMessage[] {
+  return turnos.map((m): ModelMessage =>
+    m.de === 'deudor' ? { role: 'user', content: m.texto } : { role: 'assistant', content: m.texto },
+  )
 }
 
-/** Los límites del tramo, con un piso seguro si el cliente no configuró ese tramo. */
-function limitesDelTramo(estado: EstadoDemo, tramo: string): LimitesNegociacion {
-  const configurados = (
-    estado.cartera.cliente.limitesPorTramo as Partial<Record<string, LimitesNegociacion>>
-  )[tramo]
-  // Sin configuración, no se negocia nada. Un default permisivo dejaría al
-  // agente ofreciendo condiciones que nadie autorizó.
-  return configurados ?? { descuentoMaxPct: 0, cuotasMax: 1, diasPlazoMax: 0, montoMinimoAbono: 0 }
+/**
+ * Los límites del tramo, con un piso seguro si el cliente no configuró ese tramo.
+ *
+ * Sin configuración no se negocia nada. Un default permisivo dejaría al agente
+ * ofreciendo condiciones que nadie autorizó por escrito.
+ */
+export function limitesDelTramo(
+  porTramo: Partial<Record<string, LimitesNegociacion>>,
+  tramo: string,
+): LimitesNegociacion {
+  return porTramo[tramo] ?? { descuentoMaxPct: 0, cuotasMax: 1, diasPlazoMax: 0, montoMinimoAbono: 0 }
 }

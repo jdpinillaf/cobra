@@ -123,6 +123,7 @@ describe('procesarWebhook', () => {
       optOuts: 0,
       numerosErrados: 0,
       duplicadosIgnorados: 0,
+      aResponder: [],
     })
   })
 })
