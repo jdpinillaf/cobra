@@ -146,6 +146,7 @@ export async function responderEntrante(
     resultado: enviado.estado,
     motivoBloqueo: enviado.ok ? null : (enviado.error ?? 'fallo de envío'),
     costoCop: enviado.costoCop,
+    categoria: enviado.estado === 'bloqueado' ? null : categoria,
     idProveedor: enviado.idProveedor,
     proveedor: proveedor.nombre,
   })

@@ -53,6 +53,22 @@ export interface PuertoAgente {
   nonce(): string
   /** Id para un acuerdo o un pago nuevo. En memoria es un contador; en base, un uuid. */
   nuevoId(prefijo: 'acu' | 'pag'): string
+  /**
+   * Lo que costó pensar este turno.
+   *
+   * Va aparte de `anotarPaso` porque no es un paso: no hay herramienta ni
+   * decisión, hay un consumo. Y porque la unidad que se mide y se factura es la
+   * **conversación**, no el token — un turno con cuatro herramientas y uno con
+   * ninguna cuestan distinto y los dos son un turno.
+   */
+  anotarConsumoIa(consumo: ConsumoIa): Promise<void>
+}
+
+export interface ConsumoIa {
+  proveedor: string
+  tokensEntrada: number | null
+  tokensSalida: number | null
+  latenciaMs: number
 }
 
 /**
@@ -113,5 +129,11 @@ export class PuertoEnMemoria implements PuertoAgente {
   nuevoId(prefijo: 'acu' | 'pag'): string {
     this.estado.secuencia += 1
     return `${prefijo}_${this.estado.secuencia}`
+  }
+
+  async anotarConsumoIa(): Promise<void> {
+    // La demo de la landing no lleva contabilidad: su conversación se pierde al
+    // reiniciar y su cartera es de mentira. Medir sobre eso daría un número que
+    // no significa nada y que alguien terminaría citando.
   }
 }

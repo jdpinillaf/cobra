@@ -367,4 +367,57 @@ describe('webhook contra Postgres', () => {
     )
     expect(contacto.obligacion_id).toBeNull()
   })
+
+  it('guarda con qué facturó Meta, no con qué creímos que iba a facturar', async () => {
+    // Meta reclasifica. Si dice que una plantilla que mandamos como `utility`
+    // fue `marketing`, la diferencia son 25 veces, y sin la columna esa
+    // corrección se aplicaba al costo y se perdía el porqué.
+    await base.db.query(
+      `INSERT INTO contactos (tenant_id, obligacion_id, deudor_id, canal, direccion,
+                              ocurrido_en, resultado, costo_cop, id_proveedor, proveedor, categoria)
+       VALUES ($1,$2,$3,'whatsapp','saliente', now(), 'enviado', 3.2, 'wamid.RECLASIFICADO',
+               'meta', 'utility')`,
+      [A, OBL_A, DEUDOR_A],
+    )
+
+    await procesarLote({
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'waba-unica',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                metadata: { phone_number_id: '10627' },
+                statuses: [
+                  {
+                    id: 'wamid.RECLASIFICADO',
+                    status: 'delivered',
+                    timestamp: '1786000100',
+                    conversation: { id: 'CONV-META-1', expiration_timestamp: '1786086500' },
+                    pricing: { billable: true, category: 'marketing', pricing_model: 'CBP' },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    })
+
+    const [fila] = await base.db.query<{
+      categoria: string
+      conversacion_meta: string
+      costo_cop: string
+    }>(
+      `SELECT categoria, conversacion_meta, costo_cop FROM contactos
+        WHERE tenant_id = $1 AND id_proveedor = 'wamid.RECLASIFICADO'`,
+      [A],
+    )
+    expect(fila.categoria).toBe('marketing')
+    // Sin esto no se puede conciliar la factura de Meta línea por línea.
+    expect(fila.conversacion_meta).toBe('CONV-META-1')
+    expect(Number(fila.costo_cop)).toBe(80)
+  })
 })

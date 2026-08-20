@@ -4,7 +4,7 @@ import type { PasoTraza } from '@/demo/estado'
 import { cargarContexto } from '@/repo/cobranza/contexto'
 import { pausarAgente } from '@/repo/cobranza/conversaciones'
 import type { Db } from '@/repo/db'
-import type { PuertoAgente } from './puerto'
+import type { ConsumoIa, PuertoAgente } from './puerto'
 
 /**
  * El agente contra Postgres.
@@ -121,6 +121,31 @@ export class PuertoPostgres implements PuertoAgente {
         paso.estado,
         paso.detalle,
         paso.estado === 'bloqueado' ? paso.herramienta : null,
+        this.conversacionId,
+        this.obligacion.id,
+      ],
+    )
+  }
+
+  /**
+   * El costo de IA del turno, en la misma tabla que la traza.
+   *
+   * `conversacion_id` es la llave y no es casual: la conversación es la unidad
+   * en la que se mide el costo y la unidad que se factura, y así está escrito
+   * en la migración que agregó la columna.
+   */
+  async anotarConsumoIa(consumo: ConsumoIa): Promise<void> {
+    await this.db.query(
+      `INSERT INTO agent_events (tenant_id, paso, decision, motivo, proveedor,
+                                 tokens_in, tokens_out, latencia_ms,
+                                 conversacion_id, obligacion_id)
+       VALUES ($1,'cerebro','ok','',$2,$3,$4,$5,$6,$7)`,
+      [
+        this.tenantId,
+        consumo.proveedor,
+        consumo.tokensEntrada,
+        consumo.tokensSalida,
+        consumo.latenciaMs,
         this.conversacionId,
         this.obligacion.id,
       ],

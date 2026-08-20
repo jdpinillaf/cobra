@@ -71,7 +71,11 @@ export class RepositorioPostgres implements RepositorioWebhook {
               motivo_bloqueo = COALESCE($4, motivo_bloqueo),
               -- Meta reclasifica: si dice que una plantilla fue marketing, el
               -- costo estimado al enviar estaba 25 veces por debajo.
-              costo_cop = CASE WHEN $5::boolean IS FALSE THEN 0 ELSE costo_cop END
+              costo_cop = CASE WHEN $5::boolean IS FALSE THEN 0 ELSE costo_cop END,
+              -- Lo que Meta dice que cobró le gana a lo que nosotros
+              -- estimamos: es su factura la que hay que conciliar.
+              categoria = COALESCE($6, categoria),
+              conversacion_meta = COALESCE($7, conversacion_meta)
         WHERE tenant_id = $1 AND id_proveedor = $2
         RETURNING deudor_id, canal`,
       [
@@ -80,6 +84,8 @@ export class RepositorioPostgres implements RepositorioWebhook {
         cambio.estado,
         cambio.error,
         cambio.facturable,
+        cambio.categoria,
+        cambio.conversacionMeta,
       ],
     )
     if (filas.length === 0) return

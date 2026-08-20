@@ -111,6 +111,9 @@ export async function enviarManual(
     resultado: enviado.estado,
     motivoBloqueo: enviado.ok ? null : (enviado.error ?? 'fallo de envío'),
     costoCop: enviado.costoCop,
+    // Lo que se cobró y con qué. Un envío bloqueado no llegó a salir, así que
+    // tampoco se factura.
+    categoria: enviado.estado === 'bloqueado' ? null : decision.categoria,
     idProveedor: enviado.idProveedor,
     proveedor: proveedor.nombre,
   })

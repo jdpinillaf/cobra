@@ -56,8 +56,9 @@ export async function pensar(params: {
     return { texto: await guion(ctx, turnos, deudor, obligacion), modo: 'guionado' }
   }
 
+  const empezoEn = Date.now()
   try {
-    const { text } = await generateText({
+    const { text, usage } = await generateText({
       model: elegido.modelo,
       system: construirPrompt({ cliente, deudor, obligacion, limites, fechaHoy }),
       messages: aMensajesDelModelo(turnos),
@@ -65,6 +66,20 @@ export async function pensar(params: {
       // Sin `temperature`: ni gpt-5 ni claude-sonnet-5 la aceptan, y el SDK
       // avisa por consola en cada turno. El tono se controla desde el prompt.
       stopWhen: isStepCount(PASOS_MAXIMOS),
+    })
+
+    // El `usage` venía en la misma respuesta desde siempre y se descartaba, así
+    // que la única pregunta que el negocio dijo que iba a medir —cuánto cuesta
+    // una conversación— no tenía de dónde salir.
+    //
+    // Se anota **antes** de validar el texto. Un turno que vuelve vacío gastó
+    // los tokens igual, y esconderlo de la cuenta hace que el costo por
+    // conversación se vea más barato justo en los casos que salieron mal.
+    await puerto.anotarConsumoIa({
+      proveedor: elegido.etiqueta,
+      tokensEntrada: usage.inputTokens ?? null,
+      tokensSalida: usage.outputTokens ?? null,
+      latenciaMs: Date.now() - empezoEn,
     })
 
     const limpio = text.trim()

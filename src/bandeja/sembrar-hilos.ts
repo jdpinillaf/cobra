@@ -78,6 +78,7 @@ export async function sembrarHilos(
         // como `utility` los mensajes de la ventana de servicio — los que Meta
         // no cobra, y que son el grueso del tráfico de un agente conversacional.
         costoCop: m.categoria ? TARIFA_META.costoCop('whatsapp', m.categoria) : 0,
+        categoria: m.categoria,
         idProveedor: m.resultado === 'bloqueado' ? null : `wamid.seed.${resumen.mensajes}`,
         proveedor: m.resultado === 'bloqueado' ? null : 'meta',
       })

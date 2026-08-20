@@ -1,3 +1,4 @@
+import type { CategoriaFacturable } from '@/channels/tarifas'
 import type { Canal, ResultadoEnvio } from '@/domain/types'
 import type { Db } from '../db'
 
@@ -47,6 +48,16 @@ export interface ContactoNuevo {
   motivoBloqueo?: string | null
   /** COP real, decimal. Una plantilla utility cuesta 3,2 y redondearla la vuelve cero. */
   costoCop?: number
+  /**
+   * Con qué se factura. `null` en los entrantes y en los bloqueados: no hay
+   * nada que cobrar.
+   *
+   * No se deriva del costo. El rate card ya cambió una vez, y con cualquier
+   * tarifa una `utility` gratuita sería indistinguible de un `servicio`.
+   */
+  categoria?: CategoriaFacturable | null
+  /** Id de conversación de Meta. La llave para conciliar su factura con la nuestra. */
+  conversacionMeta?: string | null
   /** `wamid` en Meta, `SID` en Twilio. */
   idProveedor?: string | null
   proveedor?: string | null
@@ -75,8 +86,9 @@ export async function registrarContacto(
   const [fila] = await db.query<{ id: string }>(
     `INSERT INTO contactos (tenant_id, obligacion_id, deudor_id, conversacion_id, canal,
                             direccion, ocurrido_en, plantilla_id, cuerpo, resultado,
-                            motivo_bloqueo, costo_cop, id_proveedor, proveedor)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                            motivo_bloqueo, costo_cop, id_proveedor, proveedor,
+                            categoria, conversacion_meta)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
      RETURNING id`,
     [
       tenantId,
@@ -93,6 +105,8 @@ export async function registrarContacto(
       contacto.costoCop ?? 0,
       contacto.idProveedor ?? null,
       contacto.proveedor ?? null,
+      contacto.categoria ?? null,
+      contacto.conversacionMeta ?? null,
     ],
   )
   await tocarConversacion(db, tenantId, contacto)
