@@ -2,7 +2,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { registrarContacto } from './contactos'
 import { abrirOReutilizar } from './conversaciones'
 import { crearDeudorConObligacion } from './cartera'
-import { consumoIaDelPeriodo, cupoDelCliente, resumenDelPeriodo } from './consumo'
+import {
+  bordesDelMes,
+  consumoIaDelPeriodo,
+  cupoDelCliente,
+  mesesRecientes,
+  resumenDelPeriodo,
+} from './consumo'
 import { crearBaseDePrueba, type BaseDePrueba } from '@/repo/prueba'
 
 /**
@@ -228,5 +234,44 @@ describe('resumenDelPeriodo', () => {
       await base.db.query(`DELETE FROM tenant_cobranza WHERE tenant_id = $1`, [TENANT])
       expect(await cupoDelCliente(base.db, TENANT)).toBeNull()
     })
+  })
+})
+
+describe('el mes como periodo', () => {
+  it('corta el mes en hora de Bogotá, no en UTC', () => {
+    // Un mensaje del 31 a las ocho de la noche es UTC del día 1. Contarlo en el
+    // mes siguiente descuadra la factura contra la del cliente unas horas todos
+    // los meses.
+    expect(bordesDelMes('2026-08')).toEqual({
+      desde: '2026-08-01T00:00:00-05:00',
+      hasta: '2026-09-01T00:00:00-05:00',
+    })
+  })
+
+  it('diciembre pasa al año siguiente', () => {
+    expect(bordesDelMes('2026-12')).toEqual({
+      desde: '2026-12-01T00:00:00-05:00',
+      hasta: '2027-01-01T00:00:00-05:00',
+    })
+  })
+
+  it('los meses de un dígito llevan cero adelante', () => {
+    // Sin el padding la cadena sale `2026-9-01`, que Postgres acepta y ordena
+    // distinto: el rango dejaría de cubrir el mes.
+    expect(bordesDelMes('2026-09').hasta).toBe('2026-10-01T00:00:00-05:00')
+  })
+
+  it('el mes actual es el de Colombia, no el de UTC', () => {
+    // 31 de agosto, 20:00 en Bogotá = 1 de septiembre 01:00 UTC. Con `getUTCMonth`
+    // el selector marcaba septiembre como mes actual mientras quien mira la
+    // pantalla todavía está en agosto — y como los bordes sí se calculan en hora
+    // de Bogotá, ese mes "actual" salía vacío.
+    const finDeAgostoEnBogota = new Date('2026-08-31T20:00:00-05:00')
+    expect(mesesRecientes(finDeAgostoEnBogota)[0]).toBe('2026-08')
+  })
+
+  it('devuelve seis meses hacia atrás, sin repetir ni saltear', () => {
+    const meses = mesesRecientes(new Date('2026-03-15T12:00:00-05:00'))
+    expect(meses).toEqual(['2026-03', '2026-02', '2026-01', '2025-12', '2025-11', '2025-10'])
   })
 })

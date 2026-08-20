@@ -2,7 +2,13 @@ import Link from 'next/link'
 import { requerirSesion } from '@/auth/actual'
 import { Celda, Encabezado, Estado, Tabla } from '@/components/consola/Tabla'
 import { cop, numero, pct } from '@/lib/formato'
-import { consumoIaDelPeriodo, cupoDelCliente, resumenDelPeriodo } from '@/repo/cobranza/consumo'
+import {
+  bordesDelMes,
+  consumoIaDelPeriodo,
+  cupoDelCliente,
+  mesesRecientes,
+  resumenDelPeriodo,
+} from '@/repo/cobranza/consumo'
 import { obtenerDb } from '@/repo/conexion'
 
 export const dynamic = 'force-dynamic'
@@ -38,28 +44,6 @@ const MESES = [
   'noviembre',
   'diciembre',
 ]
-
-/** Los últimos seis meses, del más reciente al más viejo. `YYYY-MM`. */
-function mesesRecientes(hoy: Date, cuantos = 6): string[] {
-  const salida: string[] = []
-  for (let i = 0; i < cuantos; i++) {
-    const d = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() - i, 1))
-    salida.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`)
-  }
-  return salida
-}
-
-/**
- * El mes en hora de Bogotá, no en UTC.
- *
- * Un mensaje del 31 a las 8 de la noche es UTC del día 1: contarlo en el mes
- * siguiente descuadra la factura contra la del cliente por unas horas al mes.
- */
-function bordesDelMes(mes: string): { desde: string; hasta: string } {
-  const [anio, m] = mes.split('-').map(Number)
-  const siguiente = m === 12 ? `${anio + 1}-01` : `${anio}-${String(m + 1).padStart(2, '0')}`
-  return { desde: `${mes}-01T00:00:00-05:00`, hasta: `${siguiente}-01T00:00:00-05:00` }
-}
 
 const TONO_CATEGORIA: Record<string, 'entregado' | 'diferido' | 'bloqueado' | 'neutro'> = {
   servicio: 'entregado',

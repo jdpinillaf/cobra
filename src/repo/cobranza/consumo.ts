@@ -1,3 +1,4 @@
+import { enBogota } from '@/compliance/reloj-bogota'
 import type { Canal } from '@/domain/types'
 import type { CategoriaFacturable } from '@/channels/tarifas'
 import type { Db } from '../db'
@@ -34,6 +35,37 @@ export interface Periodo {
   desde: string
   /** ISO. Exclusive: evita el borde de medianoche del último día. */
   hasta: string
+}
+
+/**
+ * Los últimos seis meses, del más reciente al más viejo. `YYYY-MM`.
+ *
+ * El mes actual sale de la hora de **Bogotá**, no de UTC. Con `getUTCMonth` el
+ * último día del mes, después de las siete de la tarde colombiana, el selector
+ * ya mostraba el mes siguiente como actual: cinco horas al mes en que la
+ * pantalla contradecía el calendario del que la mira. Y como los bordes sí se
+ * calculan en hora de Bogotá, el mes "actual" quedaba vacío.
+ */
+export function mesesRecientes(hoy: Date, cuantos = 6): string[] {
+  const enColombia = enBogota(hoy)
+  const salida: string[] = []
+  for (let i = 0; i < cuantos; i++) {
+    const d = new Date(Date.UTC(enColombia.anio, enColombia.mes - 1 - i, 1))
+    salida.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`)
+  }
+  return salida
+}
+
+/**
+ * El mes en hora de Bogotá, no en UTC.
+ *
+ * Un mensaje del 31 a las 8 de la noche es UTC del día 1: contarlo en el mes
+ * siguiente descuadra la factura contra la del cliente por unas horas al mes.
+ */
+export function bordesDelMes(mes: string): Periodo {
+  const [anio, m] = mes.split('-').map(Number)
+  const siguiente = m === 12 ? `${anio + 1}-01` : `${anio}-${String(m + 1).padStart(2, '0')}`
+  return { desde: `${mes}-01T00:00:00-05:00`, hasta: `${siguiente}-01T00:00:00-05:00` }
 }
 
 export interface ResumenConsumo {
