@@ -226,4 +226,58 @@ describe('responderEntrante', () => {
     expect(proveedor.enviados).toHaveLength(0)
     void deudorId
   })
+
+  it('un acuerdo deja la obligación en acuerdo_vigente, que es lo que frena la cadencia', async () => {
+    // Las dos escrituras van en la misma transacción. El UPDATE no es
+    // contabilidad: es lo que hace que el guard responda `acuerdo_vigente`. Un
+    // acuerdo guardado sin él deja un deudor que ya acordó y un motor que le
+    // sigue escribiendo.
+    const { PuertoPostgres } = await import('./puerto-pg')
+    const { cargarContexto } = await import('@/repo/cobranza/contexto')
+
+    const [obl] = await base.db.query<{ id: string }>(
+      `SELECT id FROM obligaciones WHERE tenant_id = $1`,
+      [TENANT],
+    )
+    const ctx = (await cargarContexto(base.db, TENANT, obl.id))!
+    const puerto = new PuertoPostgres(
+      base.db,
+      TENANT,
+      conversacionId,
+      ctx.deudor,
+      ctx.obligacion,
+      [],
+      null,
+    )
+
+    await puerto.guardarAcuerdo({
+      id: puerto.nuevoId('acu'),
+      clienteId: TENANT,
+      obligacionId: obl.id,
+      tipo: 'cuotas',
+      montoAcordado: 1_200_000,
+      descuentoPct: 0,
+      numeroCuotas: 3,
+      primeraCuotaEl: '2026-08-20',
+      estado: 'aprobado',
+      propuestoEn: MARTES.toISOString(),
+      aprobadoPor: null,
+      aprobadoEn: MARTES.toISOString(),
+      motivoRechazo: null,
+    })
+
+    const [despues] = await base.db.query<{ estado: string }>(
+      `SELECT estado FROM obligaciones WHERE tenant_id = $1 AND id = $2`,
+      [TENANT, obl.id],
+    )
+    expect(despues.estado).toBe('acuerdo_vigente')
+
+    const [guardado] = await base.db.query<{ monto_acordado_centavos: string }>(
+      `SELECT monto_acordado_centavos FROM acuerdos WHERE tenant_id = $1`,
+      [TENANT],
+    )
+    // El dominio trabaja en pesos y el esquema en centavos. Confundirlos son dos
+    // órdenes de magnitud en un acuerdo de pago.
+    expect(Number(guardado.monto_acordado_centavos)).toBe(120_000_000)
+  })
 })

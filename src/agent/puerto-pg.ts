@@ -31,36 +31,42 @@ export class PuertoPostgres implements PuertoAgente {
     readonly acuerdoVigente: Acuerdo | null,
   ) {}
 
+  /**
+   * El acuerdo y el estado de la obligación van en la **misma transacción**.
+   *
+   * El UPDATE no es contabilidad: `estado = 'acuerdo_vigente'` es lo que hace
+   * que el guard responda `acuerdo_vigente` y frene la cadencia. Si el INSERT
+   * pasara y el UPDATE fallara, quedaría un deudor que acordó y un motor que le
+   * sigue escribiendo — que es hostigamiento, y encima del caso que salió bien.
+   */
   async guardarAcuerdo(acuerdo: Acuerdo): Promise<void> {
-    await this.db.query(
-      `INSERT INTO acuerdos (id, tenant_id, obligacion_id, tipo, monto_acordado_centavos,
-                             descuento_pct, numero_cuotas, primera_cuota_el, estado,
-                             propuesto_en, aprobado_por, aprobado_en)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11)`,
-      [
-        acuerdo.id,
-        this.tenantId,
-        acuerdo.obligacionId,
-        acuerdo.tipo,
-        aCentavos(acuerdo.montoAcordado),
-        acuerdo.descuentoPct,
-        acuerdo.numeroCuotas,
-        acuerdo.primeraCuotaEl,
-        acuerdo.estado,
-        acuerdo.propuestoEn,
-        acuerdo.aprobadoEn,
-      ],
-    )
+    await this.db.transaccion(async (tx) => {
+      await tx.query(
+        `INSERT INTO acuerdos (id, tenant_id, obligacion_id, tipo, monto_acordado_centavos,
+                               descuento_pct, numero_cuotas, primera_cuota_el, estado,
+                               propuesto_en, aprobado_por, aprobado_en)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11)`,
+        [
+          acuerdo.id,
+          this.tenantId,
+          acuerdo.obligacionId,
+          acuerdo.tipo,
+          aCentavos(acuerdo.montoAcordado),
+          acuerdo.descuentoPct,
+          acuerdo.numeroCuotas,
+          acuerdo.primeraCuotaEl,
+          acuerdo.estado,
+          acuerdo.propuestoEn,
+          acuerdo.aprobadoEn,
+        ],
+      )
 
-    // El acuerdo vigente bloquea la cadencia: el guard responde
-    // `acuerdo_vigente`, porque insistirle a quien está cumpliendo es
-    // hostigamiento. Sin este UPDATE el acuerdo existiría y la cadencia
-    // seguiría corriendo por encima.
-    await this.db.query(
-      `UPDATE obligaciones SET estado = 'acuerdo_vigente'
-        WHERE tenant_id = $1 AND id = $2 AND estado NOT IN ('pagada','castigada','juridico')`,
-      [this.tenantId, acuerdo.obligacionId],
-    )
+      await tx.query(
+        `UPDATE obligaciones SET estado = 'acuerdo_vigente'
+          WHERE tenant_id = $1 AND id = $2 AND estado NOT IN ('pagada','castigada','juridico')`,
+        [this.tenantId, acuerdo.obligacionId],
+      )
+    })
   }
 
   async guardarPago(pago: Pago): Promise<void> {
