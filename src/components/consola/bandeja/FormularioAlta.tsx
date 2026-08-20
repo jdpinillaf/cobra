@@ -66,7 +66,7 @@ export function FormularioAlta() {
             <span className={ETIQUETA}>Tipo</span>
             <select
               value={datos.tipoDocumento}
-            name="tipoDocumento"
+              name="tipoDocumento"
               onChange={(e) =>
                 setDatos((d) => ({
                   ...d,
@@ -86,7 +86,7 @@ export function FormularioAlta() {
             <span className={ETIQUETA}>Documento</span>
             <input
               value={datos.documento}
-            name="documento"
+              name="documento"
               onChange={(e) => set('documento')(e.target.value)}
               className={CAMPO}
               inputMode="numeric"
@@ -127,7 +127,7 @@ export function FormularioAlta() {
             <span className={ETIQUETA}>Saldo (COP)</span>
             <input
               value={datos.saldoTotal}
-            name="saldoTotal"
+              name="saldoTotal"
               onChange={(e) => set('saldoTotal')(e.target.value.replace(/[^\d]/g, ''))}
               className={CAMPO}
               inputMode="numeric"
@@ -138,7 +138,7 @@ export function FormularioAlta() {
             <span className={ETIQUETA}>Días de mora</span>
             <input
               value={datos.diasMora}
-            name="diasMora"
+              name="diasMora"
               onChange={(e) => set('diasMora')(e.target.value.replace(/[^\d-]/g, ''))}
               className={CAMPO}
               inputMode="numeric"
