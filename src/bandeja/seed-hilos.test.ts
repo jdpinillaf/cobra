@@ -67,12 +67,34 @@ describe('generarHilos', () => {
     expect(hilos.some((h) => h.etiquetas.length > 0)).toBe(true)
   })
 
-  it('ordena los mensajes de cada hilo cronológicamente', () => {
+  it('ordena los mensajes de cada hilo cronológicamente, sin empates', () => {
     for (const hilo of generar()) {
       // Acá sí vale comparar cadenas: todas salen de toISOString(), o sea el
       // mismo formato UTC, donde el orden lexicográfico es el cronológico.
       const tiempos = hilo.mensajes.map((m) => m.ocurridoEn)
       expect([...tiempos].sort()).toEqual(tiempos)
+
+      // Estrictamente creciente. Dos mensajes con el mismo instante dejan el
+      // orden del hilo a merced de la estabilidad del sort, y el hilo deja de
+      // ser reproducible aunque la semilla no cambie.
+      expect(new Set(tiempos).size).toBe(tiempos.length)
+    }
+  })
+
+  it('no pone dos mensajes seguidos del mismo lado', () => {
+    // El generador arma los turnos alternando deudor y agente. Cuando los
+    // instantes se calculaban con un salto aleatorio **por mensaje**, los
+    // offsets no quedaban ordenados y el `sort` posterior desarmaba justo esa
+    // alternancia: salían dos frases del agente pegadas, o el deudor
+    // respondiéndose a sí mismo. Era el 38 % de los pares.
+    //
+    // El síntoma que se veía en pantalla era peor que un problema de orden: la
+    // disculpa por el número equivocado quedaba seguida del plan de cuotas.
+    for (const hilo of generar()) {
+      const seguidos = hilo.mensajes.filter(
+        (m, i) => i > 0 && m.direccion === hilo.mensajes[i - 1].direccion,
+      )
+      expect(seguidos).toEqual([])
     }
   })
 

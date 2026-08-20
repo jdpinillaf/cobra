@@ -104,22 +104,43 @@ export function generarHilos(opciones: OpcionesHilos): HiloSeed[] {
     // El hilo termina hace entre 5 minutos y 6 días. Eso da una bandeja con
     // mezcla de "recién" y "hace rato", que es como se ve una real.
     const finEn = ahora - Math.floor(rnd() * 6 * 24 * 60) * MINUTO - 5 * MINUTO
-    const mensajes: MensajeSeed[] = []
 
-    for (let m = largo - 1; m >= 0; m--) {
+    // Los huecos se sortean primero y se acumulan hacia adelante.
+    //
+    // Antes cada instante se calculaba como `finEn - m * (7 + rnd() * 90)`, con
+    // el multiplicador sorteado **por mensaje**: el turno 2 con factor 90 caía
+    // más viejo que el turno 3 con factor 7. Los instantes no quedaban
+    // ordenados, y el `sort` que venía después los reacomodaba desarmando la
+    // alternancia deudor/agente que la paridad de `m` acababa de armar. El 38 %
+    // de los pares terminaba con dos mensajes seguidos del mismo lado.
+    //
+    // En pantalla eso no se leía como un problema de orden: se leía como que el
+    // agente contestaba cualquier cosa. La disculpa por el número equivocado
+    // quedaba pegada al plan de cuotas.
+    //
+    // Acumular garantiza el orden por construcción, así que no hace falta
+    // ordenar después: el hilo sale en el orden en que se escribieron los turnos.
+    const huecos = Array.from({ length: largo - 1 }, () => (7 + Math.floor(rnd() * 90)) * MINUTO)
+    const duracion = huecos.reduce((a, b) => a + b, 0)
+    const mensajes: MensajeSeed[] = []
+    let instante = finEn - duracion
+
+    for (let m = 0; m < largo; m++) {
+      // Arranca la empresa: un hilo de cobranza no empieza porque el deudor
+      // escriba de la nada.
       const entrante = m % 2 === 1
       // Uno de cada doce salientes fue bloqueado por la ley. Son parte del hilo
       // y son la evidencia; esconderlos haría parecer que nunca se intentó.
       const bloqueado = !entrante && rnd() < 1 / 12
       mensajes.push({
-        ocurridoEn: new Date(finEn - m * (7 + Math.floor(rnd() * 90)) * MINUTO).toISOString(),
+        ocurridoEn: new Date(instante).toISOString(),
         direccion: entrante ? 'entrante' : 'saliente',
         cuerpo: bloqueado ? '' : entrante ? elegir(DEL_DEUDOR) : elegir(DEL_AGENTE),
         resultado: bloqueado ? 'bloqueado' : entrante ? 'entregado' : elegir(['entregado', 'leido'] as const),
         motivoBloqueo: bloqueado ? elegir(BLOQUEOS) : null,
       })
+      instante += huecos[m] ?? 0
     }
-    mensajes.sort((a, b) => a.ocurridoEn.localeCompare(b.ocurridoEn))
 
     const pausado = i % 6 === 0
     const asignadaA = i % 4 === 3 ? null : opciones.usuarios[i % opciones.usuarios.length]
