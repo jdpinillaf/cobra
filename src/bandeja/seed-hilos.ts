@@ -1,5 +1,7 @@
 import { esFestivo } from '@/compliance/festivos'
 import { desdeBogota, enBogota, sumarDias } from '@/compliance/reloj-bogota'
+import { DURACION_VENTANA_MS } from '@/channels/ventana-servicio'
+import type { CategoriaFacturable } from '@/channels/tarifas'
 import { cop } from '@/lib/formato'
 import type { ResultadoEnvio } from '@/domain/types'
 
@@ -363,6 +365,16 @@ export interface MensajeSeed {
   cuerpo: string
   resultado: ResultadoEnvio
   motivoBloqueo: string | null
+  /**
+   * Con qué categoría lo habría facturado Meta. `null` si no hay nada que
+   * facturar: los entrantes no se cobran nunca, y un intento que el guard paró
+   * jamás llegó a salir.
+   *
+   * Lo decide el generador y no quien persiste, porque depende de si la ventana
+   * de servicio estaba abierta en ese instante — y eso solo se sabe mirando la
+   * secuencia completa del hilo.
+   */
+  categoria: CategoriaFacturable | null
 }
 
 export interface HiloSeed {
@@ -515,8 +527,19 @@ export function generarHilos(opciones: OpcionesHilos): HiloSeed[] {
       instante = efectivo - (huecos[k - 1] ?? 0)
     }
 
+    // La ventana de servicio se reabre con cada entrante y dura 24 h. Dentro,
+    // el texto libre es categoría `servicio` y Meta no lo cobra; afuera hay que
+    // mandar plantilla, y las tres del cliente son `utility`.
+    //
+    // El seed cobraba COP 3,2 a todo saliente entregado, con lo cual la
+    // pantalla de consumo iba a nacer inflada — y en la dirección que más caro
+    // sale creer.
+    let abiertaHasta = 0
+
     const mensajes: MensajeSeed[] = instantes.map((ms, k) => {
       const entrante = turnos[k].de === 'deudor'
+      if (entrante) abiertaHasta = ms + DURACION_VENTANA_MS
+
       return {
         ocurridoEn: new Date(ms).toISOString(),
         direccion: entrante ? 'entrante' : 'saliente',
@@ -527,6 +550,8 @@ export function generarHilos(opciones: OpcionesHilos): HiloSeed[] {
             ? 'entregado'
             : elegir(['entregado', 'leido'] as const),
         motivoBloqueo: bloqueados[k] ? motivoDelBloqueo(ms, rnd) : null,
+        categoria:
+          entrante || bloqueados[k] ? null : ms < abiertaHasta ? 'servicio' : 'utility',
       }
     })
 

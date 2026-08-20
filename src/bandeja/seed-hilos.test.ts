@@ -278,6 +278,49 @@ describe('generarHilos', () => {
     }
   })
 
+  it('cobra como cobra Meta: gratis dentro de la ventana de 24 h', () => {
+    // El seed cobraba COP 3,2 a **todo** saliente entregado. Pero un texto
+    // libre dentro de la ventana de servicio es categoría `servicio` y Meta no
+    // lo cobra, sin tope, desde noviembre de 2024. Ese es el motivo económico
+    // de haber ido a Meta directo en vez de por un revendedor.
+    //
+    // Cobrarlo igual no es un redondeo: infla la única pantalla que mide el
+    // negocio, y en la dirección que más caro sale creer.
+    const VENTANA_MS = 24 * 60 * 60 * 1000
+
+    for (const hilo of generar()) {
+      let ultimoEntrante: number | null = null
+
+      for (const m of hilo.mensajes) {
+        const t = new Date(m.ocurridoEn).getTime()
+
+        if (m.direccion === 'entrante') {
+          expect(m.categoria).toBeNull()
+          ultimoEntrante = t
+          continue
+        }
+
+        // Un intento que nunca salió no se factura.
+        if (m.resultado === 'bloqueado') {
+          expect(m.categoria).toBeNull()
+          continue
+        }
+
+        const abierta = ultimoEntrante !== null && t - ultimoEntrante < VENTANA_MS
+        expect(m.categoria).toBe(abierta ? 'servicio' : 'utility')
+      }
+    }
+  })
+
+  it('la bandeja sembrada tiene mensajes de las dos categorías', () => {
+    // Si todos cayeran de un lado, la pantalla de consumo se construiría sin ver
+    // nunca la mitad que importa.
+    const categorias = new Set(
+      generar().flatMap((h) => h.mensajes.map((m) => m.categoria).filter(Boolean)),
+    )
+    expect(categorias).toEqual(new Set(['servicio', 'utility']))
+  })
+
   it('usa todos los guiones del catálogo', () => {
     // Un guion que nunca sale es una pantalla que nunca veo.
     const usados = new Set(generar().map((h) => h.guion))

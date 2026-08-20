@@ -1,3 +1,4 @@
+import { TARIFA_META } from '@/channels/tarifas'
 import { registrarContacto } from '@/repo/cobranza/contactos'
 import {
   abrirOReutilizar,
@@ -72,9 +73,11 @@ export async function sembrarHilos(
         cuerpo: m.cuerpo,
         resultado: m.resultado,
         motivoBloqueo: m.motivoBloqueo,
-        // Un saliente entregado cuesta lo de una plantilla utility; el entrante
-        // y el bloqueado no cuestan nada.
-        costoCop: m.direccion === 'saliente' && m.resultado !== 'bloqueado' ? 3.2 : 0,
+        // El costo sale del rate card real, no de una constante escrita a mano.
+        // Antes acá había un `3.2` fijo para todo saliente entregado, que cobra
+        // como `utility` los mensajes de la ventana de servicio — los que Meta
+        // no cobra, y que son el grueso del tráfico de un agente conversacional.
+        costoCop: m.categoria ? TARIFA_META.costoCop('whatsapp', m.categoria) : 0,
         idProveedor: m.resultado === 'bloqueado' ? null : `wamid.seed.${resumen.mensajes}`,
         proveedor: m.resultado === 'bloqueado' ? null : 'meta',
       })
