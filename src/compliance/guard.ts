@@ -14,6 +14,7 @@ import { enBogota, type InstanteBogota } from './reloj-bogota'
 export type MotivoBloqueo =
   | 'destinatario_es_referencia'
   | 'opt_out'
+  | 'numero_no_corresponde'
   | 'sin_consentimiento'
   | 'obligacion_cerrada'
   | 'acuerdo_vigente'
@@ -99,6 +100,19 @@ export function evaluar(solicitud: SolicitudEnvio): Decision {
     return bloquear(
       'opt_out',
       `El deudor revocó la autorización de contacto el ${deudor.consentimiento.revocadoEn}.`,
+    )
+  }
+
+  // Después del opt-out a propósito. Los dos frenan igual, pero no explican lo
+  // mismo ni se revierten igual: la baja la pidió el deudor y es irreversible;
+  // esto lo afirmó quien contesta el teléfono y un humano lo puede limpiar. Si
+  // ante los dos hechos quedara registrado el motivo reversible, alguien lo
+  // limpiaría y reactivaría una cadencia que la ley apagó.
+  if (deudor.numeroErradoEn !== null) {
+    return bloquear(
+      'numero_no_corresponde',
+      `Alguien en este número avisó el ${deudor.numeroErradoEn} que el deudor no es él. ` +
+        'Insistirle a un tercero es tratamiento de datos de quien nunca autorizó nada.',
     )
   }
 

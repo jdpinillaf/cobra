@@ -21,6 +21,7 @@ function unDeudor(over: Partial<Deudor> = {}): Deudor {
     rol: 'titular',
     consentimiento: { otorgado: true, fuente: 'pagare', fecha: '2025-01-15', revocadoEn: null },
     preferencia: { canal: null, diaSemana: null, horaDesde: null, horaHasta: null },
+    numeroErradoEn: null,
     ...over,
   }
 }

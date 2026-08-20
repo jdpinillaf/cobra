@@ -107,6 +107,35 @@ describe('webhook contra Postgres', () => {
     }
   }
 
+  /** Un entrante suelto de un solo número. */
+  function unEntrante(telefono: string, id: string, cuerpo: string, ts = '1786000000') {
+    return {
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          id: 'waba-unica',
+          changes: [
+            {
+              field: 'messages',
+              value: {
+                metadata: { phone_number_id: '10627' },
+                messages: [
+                  {
+                    from: telefono.replace('+', ''),
+                    id,
+                    timestamp: ts,
+                    type: 'text',
+                    text: { body: cuerpo },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    }
+  }
+
   it('no mezcla dos clientes que vienen en la misma entrega', async () => {
     await procesarLote(LOTE_MEZCLADO)
 
@@ -264,5 +293,56 @@ describe('webhook contra Postgres', () => {
 
     const hilo = await hiloDeConversacion(base.db, A, conv[0].id)
     expect(hilo[0].resultado).toBe('entregado')
+  })
+
+  it('el aviso de número errado frena la cadencia y le deja el caso a alguien', async () => {
+    // Antes de esto el mensaje se registraba, se abría la ventana de 24 h y la
+    // cadencia seguía escribiéndole a un tercero que ya había avisado que no es
+    // el deudor. No es una molestia: es tratamiento de datos de quien nunca
+    // autorizó nada.
+    await procesarLote(unEntrante(TEL_A, 'wamid.NO_SOY', 'yo no soy, ese número está equivocado'))
+
+    const [deudor] = await base.db.query<{ numero_errado_en: Date | null }>(
+      `SELECT numero_errado_en FROM deudores WHERE tenant_id = $1 AND id = $2`,
+      [A, DEUDOR_A],
+    )
+    expect(deudor.numero_errado_en).not.toBeNull()
+
+    // Marcar sin pausar dejaría el número mudo para siempre sin que a nadie le
+    // aparezca el caso: el guard frenando y ninguna persona verificando si el
+    // dato de la cartera estaba mal o si el deudor está esquivando.
+    const [conversacion] = await base.db.query<{ agente_pausado: boolean }>(
+      `SELECT agente_pausado FROM conversaciones WHERE tenant_id = $1 AND deudor_id = $2`,
+      [A, DEUDOR_A],
+    )
+    expect(conversacion.agente_pausado).toBe(true)
+  })
+
+  it('conserva la fecha del primer aviso, que es la que vale', async () => {
+    await procesarLote(unEntrante(TEL_A, 'wamid.NO_SOY_1', 'este no es mi número'))
+    const [primera] = await base.db.query<{ numero_errado_en: Date }>(
+      `SELECT numero_errado_en FROM deudores WHERE tenant_id = $1 AND id = $2`,
+      [A, DEUDOR_A],
+    )
+
+    await procesarLote(unEntrante(TEL_A, 'wamid.NO_SOY_2', 'ya le dije que no soy yo', '1786100000'))
+    const [segunda] = await base.db.query<{ numero_errado_en: Date }>(
+      `SELECT numero_errado_en FROM deudores WHERE tenant_id = $1 AND id = $2`,
+      [A, DEUDOR_A],
+    )
+
+    // Cada aviso posterior la reescribía hacia adelante y borraba el dato: hace
+    // cuánto que se sabe que este número no es del deudor.
+    expect(segunda.numero_errado_en.getTime()).toBe(primera.numero_errado_en.getTime())
+  })
+
+  it('no marca a nadie por un "no soy capaz de pagar"', async () => {
+    await procesarLote(unEntrante(TEL_A, 'wamid.CAPAZ', 'no soy capaz de pagar todo este mes'))
+
+    const [deudor] = await base.db.query<{ numero_errado_en: Date | null }>(
+      `SELECT numero_errado_en FROM deudores WHERE tenant_id = $1 AND id = $2`,
+      [A, DEUDOR_A],
+    )
+    expect(deudor.numero_errado_en).toBeNull()
   })
 })

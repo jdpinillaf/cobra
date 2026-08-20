@@ -177,6 +177,7 @@ function inyectarProtagonista(cartera: CarteraDemo, fechaCorte: string): void {
       revocadoEn: null,
     },
     preferencia: { canal: null, diaSemana: null, horaDesde: null, horaHasta: null },
+    numeroErradoEn: null,
   }
 
   const obligacion: Obligacion = {

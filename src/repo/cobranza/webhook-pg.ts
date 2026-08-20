@@ -159,6 +159,40 @@ export class RepositorioPostgres implements RepositorioWebhook {
     )
   }
 
+  /**
+   * Alguien en este número avisó que el deudor no es él.
+   *
+   * Escribe la marca **y pausa el hilo**, en la misma pasada. Solo marcar
+   * dejaría al guard frenando la cadencia mientras el caso no le aparece a
+   * nadie: el número quedaría mudo para siempre sin que ninguna persona llegue
+   * a verificar si el dato de la cartera estaba mal o si el deudor está
+   * esquivando. Esto no se resuelve solo, y por eso no se archiva solo.
+   *
+   * Conserva la primera fecha, igual que la revocación: es la que vale como
+   * evidencia de cuándo se avisó.
+   */
+  async marcarNumeroErrado(telefono: string, en: string): Promise<void> {
+    const deudorId = await this.deudorPorTelefono(telefono)
+    if (!deudorId) return
+
+    const filas = await this.db.query<{ id: string }>(
+      `UPDATE deudores SET numero_errado_en = $3
+        WHERE tenant_id = $1 AND id = $2 AND numero_errado_en IS NULL
+        RETURNING id`,
+      [this.tenantId, deudorId, en],
+    )
+    // Ya estaba marcado: no se vuelve a pausar ni a pisar la fecha.
+    if (filas.length === 0) return
+
+    await this.db.query(
+      `UPDATE conversaciones
+          SET agente_pausado = true,
+              pausada_en = COALESCE(pausada_en, $3::timestamptz)
+        WHERE tenant_id = $1 AND deudor_id = $2 AND cerrada_en IS NULL`,
+      [this.tenantId, deudorId, en],
+    )
+  }
+
   private async deudorPorTelefono(telefono: string): Promise<string | null> {
     const filas = await this.db.query<{ id: string }>(
       `SELECT id FROM deudores WHERE tenant_id = $1 AND telefonos @> ARRAY[$2::text] LIMIT 1`,

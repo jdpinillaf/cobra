@@ -27,6 +27,10 @@ import { evaluar, type Decision, type MotivoBloqueo } from '@/compliance/guard'
 const ABSOLUTOS = new Set<MotivoBloqueo>([
   'destinatario_es_referencia',
   'opt_out',
+  // Quien escribió no es el deudor. Que haya escrito recién es justamente el
+  // motivo para callarse: contestarle es seguir gestionando una cartera contra
+  // un tercero.
+  'numero_no_corresponde',
   'sin_consentimiento',
   'obligacion_cerrada',
 ])

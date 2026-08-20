@@ -1,0 +1,31 @@
+-- "Este no es mi número."
+--
+-- Hasta acá el sistema no hacía nada con eso. El deudor —o quien contestara ese
+-- teléfono— escribía "yo no soy, ese número está equivocado", el webhook
+-- registraba el entrante, **abría la ventana de 24 h** y la cadencia le seguía
+-- escribiendo. Lo único que reaccionaba era una herramienta del agente que muta
+-- un objeto en memoria de la demo.
+--
+-- Seguir contactando a un tercero que ya dijo que no es el deudor no es una
+-- molestia: es tratamiento de datos personales de alguien que nunca autorizó
+-- nada. Ley 1581 de habeas data, además de la 2300.
+--
+-- Columna aparte de `revocado_en`, y no un valor más del mismo campo, porque
+-- son dos hechos distintos con dos reversibilidades distintas:
+--
+--   revocado_en       lo pide el deudor. Absoluto e irreversible: volver a
+--                     contactarlo exige un consentimiento nuevo y explícito.
+--   numero_errado_en  lo afirma quien contesta, y está **por verificar**. El
+--                     número puede ser correcto y la persona estar esquivando.
+--                     El guard bloquea igual, pero un humano puede limpiarlo si
+--                     comprueba que el dato de la cartera estaba bien.
+--
+-- Meterlos en el mismo campo obligaría a elegir una de las dos semánticas, y
+-- cualquiera de las dos elecciones pierde información que importa: o se vuelven
+-- irreversibles los errores de digitación de la cartera, o se vuelve reversible
+-- una baja que la ley dice que no lo es.
+ALTER TABLE deudores ADD COLUMN numero_errado_en timestamptz;
+
+-- El caso que se busca en la consola es "quiénes están frenados y por qué", así
+-- que el índice va sobre los que tienen algo, no sobre los millones que no.
+CREATE INDEX ON deudores (tenant_id) WHERE numero_errado_en IS NOT NULL;

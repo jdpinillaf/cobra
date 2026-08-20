@@ -21,6 +21,7 @@ function unDeudor(over: Partial<Deudor> = {}): Deudor {
     rol: 'titular',
     consentimiento: { otorgado: true, fuente: 'pagare', fecha: '2025-01-15', revocadoEn: null },
     preferencia: { canal: null, diaSemana: null, horaDesde: null, horaHasta: null },
+    numeroErradoEn: null,
     ...over,
   }
 }
@@ -141,5 +142,26 @@ describe('evaluarRespuesta', () => {
     expect(resultado.responder).toBe(false)
     if (resultado.responder || resultado.razon !== 'ley') throw new Error('inalcanzable')
     expect(resultado.motivo).toBe('obligacion_cerrada')
+  })
+})
+
+describe('número que no corresponde', () => {
+  it('el agente calla aunque el mensaje entrante sea justo el aviso', () => {
+    // El caso es contraintuitivo y por eso vale el test: el deudor —quien sea
+    // que conteste— acaba de escribir, así que la ventana está abierta y el
+    // agente podría responder. Pero lo que escribió fue que no es él, y
+    // contestarle es seguir gestionando una cartera contra un tercero.
+    const compuerta = evaluarRespuesta({
+      ahora: new Date('2026-08-11T10:00:00-05:00'),
+      deudor: unDeudor({ numeroErradoEn: '2026-08-11T09:59:00-05:00' }),
+      obligacion: unaObligacion(),
+      contactosDelDeudor: [],
+    })
+
+    expect(compuerta.responder).toBe(false)
+    if (compuerta.responder) return
+    expect(compuerta.razon).toBe('ley')
+    if (compuerta.razon !== 'ley') return
+    expect(compuerta.motivo).toBe('numero_no_corresponde')
   })
 })

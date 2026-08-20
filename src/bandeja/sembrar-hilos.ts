@@ -109,6 +109,15 @@ export async function sembrarHilos(
     // Sin esto el seed producía un estado imposible: un deudor que pidió la
     // baja en el mensaje que se ve en pantalla y que la cartera sigue dando por
     // contactable. La consola lo mostraba con el botón de enviar habilitado.
+    if (hilo.marca === 'numero-errado') {
+      const aviso = [...hilo.mensajes].reverse().find((m) => m.direccion === 'entrante')
+      await db.query(
+        `UPDATE deudores SET numero_errado_en = $3
+          WHERE tenant_id = $1 AND id = $2 AND numero_errado_en IS NULL`,
+        [tenantId, hilo.deudorId, aviso?.ocurridoEn ?? opciones.ahora],
+      )
+    }
+
     if (hilo.marca === 'opt-out') {
       const ultimoEntranteDelDeudor = [...hilo.mensajes]
         .reverse()

@@ -1,3 +1,4 @@
+import { detectarNumeroErrado } from './numero-errado'
 import { detectarOptOut } from './opt-out'
 import {
   interpretarEntrantes,
@@ -30,12 +31,21 @@ export interface RepositorioWebhook {
   abrirVentanaServicio(telefono: string, entranteEn: string): Promise<void>
   /** Escribe `Consentimiento.revocadoEn`. El guard ya lo respeta. */
   revocarConsentimiento(telefono: string, en: string): Promise<void>
+  /**
+   * Escribe `Deudor.numeroErradoEn` y deja el hilo para un humano.
+   *
+   * Separado de `revocarConsentimiento` porque son dos hechos distintos: la
+   * baja la pide el deudor y no se deshace; esto lo afirma quien contesta y
+   * está por verificar.
+   */
+  marcarNumeroErrado(telefono: string, en: string): Promise<void>
 }
 
 export interface ResumenWebhook {
   estadosAplicados: number
   entrantesRegistrados: number
   optOuts: number
+  numerosErrados: number
   duplicadosIgnorados: number
 }
 
@@ -55,6 +65,7 @@ export async function procesarWebhook(
     estadosAplicados: 0,
     entrantesRegistrados: 0,
     optOuts: 0,
+    numerosErrados: 0,
     duplicadosIgnorados: 0,
   }
 
@@ -87,6 +98,15 @@ export async function procesarWebhook(
       resumen.optOuts += 1
     }
 
+    // Los dos pueden dispararse con el mismo mensaje —"no es mi número, no me
+    // escriban más" es las dos cosas— y los dos se escriben. No compiten: uno
+    // revoca la autorización y el otro abre una revisión, y el guard sabe cuál
+    // explicar primero.
+    if (detectarNumeroErrado(mensaje.cuerpo)) {
+      await repo.marcarNumeroErrado(mensaje.deTelefono, mensaje.ocurrioEn)
+      resumen.numerosErrados += 1
+    }
+
     await repo.marcarProcesado(llave)
     resumen.entrantesRegistrados += 1
   }
@@ -107,6 +127,7 @@ export class RepositorioEnMemoria implements RepositorioWebhook {
   readonly entrantes: MensajeEntrante[] = []
   readonly ventanas = new Map<string, string>()
   readonly revocados = new Map<string, string>()
+  readonly numerosErrados = new Map<string, string>()
 
   async yaProcesado(id: string): Promise<boolean> {
     return this.procesados.has(id)
@@ -125,5 +146,10 @@ export class RepositorioEnMemoria implements RepositorioWebhook {
   }
   async revocarConsentimiento(telefono: string, en: string): Promise<void> {
     if (!this.revocados.has(telefono)) this.revocados.set(telefono, en)
+  }
+  async marcarNumeroErrado(telefono: string, en: string): Promise<void> {
+    // Se queda con la primera vez, igual que la revocación: la fecha en que se
+    // avisó es el dato, y cada mensaje posterior la reescribía hacia adelante.
+    if (!this.numerosErrados.has(telefono)) this.numerosErrados.set(telefono, en)
   }
 }

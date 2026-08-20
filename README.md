@@ -95,11 +95,27 @@ Nada de esto puede salir al navegador. Sin las variables, el webhook responde 50
 
 Con implementaciones 1:1 **no hace falta ser Tech Provider ni montar Embedded Signup**: basta un System User sobre la WABA del propio cliente. El programa de partners solo aplica a onboarding self-serve a escala.
 
+## Demo de venta
+
+`pnpm dev` → `/demo`. Un simulador de WhatsApp al lado del expediente que el
+agente consulta en vivo: saldo, mora, consentimiento, límites de negociación y
+la decisión del guard. Termina en un link de pago que concilia contra la
+obligación por la referencia `COB-…`.
+
+El runbook de la reunión —variables de entorno, montaje de Chatwoot, guion y
+qué hacer si algo falla— está en [`docs/demo-para-reunion.md`](docs/demo-para-reunion.md).
+El flujo explicado para un cliente, en [`docs/flujo-agente-cobranza.md`](docs/flujo-agente-cobranza.md).
+
+Sin `ANTHROPIC_API_KEY`, o si el modelo falla, el agente cae solo a respuestas
+guionadas (`src/agent/guionado.ts`) que ejecutan las **mismas** validaciones. Se
+nota en el panel, no en el teléfono.
+
 ## Estado
 
-Listo y verificado: modelo de dominio, compliance, cadencia, ingesta, canal saliente y entrante, ventana de servicio, opt-out, pagos, simulador del piloto y la landing.
+Listo y verificado: modelo de dominio, compliance, cadencia, ingesta, canal saliente y entrante, ventana de servicio, opt-out, pagos, simulador del piloto, la landing y la demo conversacional.
 
 Pendiente:
 
-- Agente conversacional con aprobación humana (`src/agent/`) y el panel de operación para el cliente.
+- **Aprobación humana caso a caso.** Hoy `proponerAcuerdo` (`src/agent/herramientas.ts`) aprueba lo que cabe en los rangos que el cliente autorizó por escrito, y escala el resto. El modelo de dominio contempla `esperando_aprobacion`, pero no hay panel donde alguien apruebe.
+- Panel de operación para el cliente. Chatwoot (`src/integrations/chatwoot.ts`) cubre la consola de conversaciones, no la de cartera.
 - **Persistencia real detrás de `RepositorioWebhook`.** Hoy el webhook usa `RepositorioEnMemoria`, que se pierde al reiniciar y no se comparte entre instancias. Con dos réplicas y Meta reintentando, un entrante se registraría dos veces y el cupo quedaría mal contado. Es lo primero que hay que cerrar antes del primer cliente.

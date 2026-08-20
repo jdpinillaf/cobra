@@ -420,13 +420,19 @@ export function generarHilos(opciones: OpcionesHilos): HiloSeed[] {
   const elegir = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]
 
   return opciones.obligaciones.map((o, i) => {
+    // Los tres saneos son del mismo tipo: el texto se arma con datos de la
+    // cartera, y la cartera importada trae de todo. Un nombre vacío deja "Buen
+    // día, ." y un saldo negativo ofrece "cuotas de -$225.000" — que no son
+    // datos feos sino imposibles, y en pantalla se ven exactamente igual que un
+    // bug del producto.
+    const saldo = Math.max(0, o.saldoTotal)
     const ctx: ContextoGuion = {
-      nombre: o.deudorNombre.split(' ')[0],
+      nombre: o.deudorNombre.trim().split(' ')[0] || 'estimado cliente',
       empresa: opciones.empresa,
       credito: o.numeroCredito,
-      saldo: cop(o.saldoTotal),
-      cuota: cop(Math.round(o.saldoTotal / 2)),
-      abono: cop(Math.max(50_000, Math.round(o.saldoTotal * 0.2))),
+      saldo: cop(saldo),
+      cuota: cop(Math.round(saldo / 2)),
+      abono: cop(Math.max(50_000, Math.round(saldo * 0.2))),
       diasMora: Math.max(0, o.diasMora),
     }
 
@@ -443,18 +449,40 @@ export function generarHilos(opciones: OpcionesHilos): HiloSeed[] {
 
     // Primero la presentación, después los meses de cadencia, y al final el arco
     // donde el deudor por fin contesta algo que decide el caso.
+    //
+    // El preludio no puede repetir lo que dice el arco ni repetirse a sí mismo.
+    // Sonaba a detalle y no lo es: el deudor diciendo "estoy en eso, deme unos
+    // días" tres veces en el mismo hilo, con una respuesta distinta cada vez,
+    // es el mismo dato imposible que los guiones vinieron a arreglar.
+    const delArco = new Set(guion.turnos.map((t) => t.texto(ctx)))
+    const disponibles = RONDAS.filter((r) => !delArco.has(r.deudor))
+    // Un arco de solo salientes se queda sin entrantes también en el preludio.
+    // `sin-respuesta` dice de sí mismo "no contesta" y lleva esa etiqueta: con
+    // rondas adentro, el filtro de la bandeja mostraría hilos que sí contestaron.
+    const mudo = guion.turnos.every((t) => t.de === 'agente')
+
     const turnos: Turno[] = [APERTURA]
+    let ultimoTexto = APERTURA.texto(ctx)
+
     while (turnos.length + guion.turnos.length < objetivo) {
       const intentos = 1 + Math.floor(rnd() * 3)
       for (let k = 0; k < intentos; k++) {
-        turnos.push({ de: 'agente', texto: elegir(INTENTOS), intento: true })
+        // Un intento puede repetirse a lo largo de meses —la cadencia manda la
+        // misma plantilla— pero no dos veces pegadas: eso se lee como un bug de
+        // reintentos, no como gestión.
+        const opciones = INTENTOS.filter((f) => f(ctx) !== ultimoTexto)
+        const texto = elegir(opciones.length > 0 ? opciones : INTENTOS)
+        turnos.push({ de: 'agente', texto, intento: true })
+        ultimoTexto = texto(ctx)
       }
+
       // A veces contesta algo que no resuelve nada y la gestión sigue. Sin esto
       // el hilo largo sería un monólogo de treinta mensajes.
-      if (rnd() < 0.45) {
-        const ronda = elegir(RONDAS)
+      if (!mudo && disponibles.length > 0 && rnd() < 0.45) {
+        const [ronda] = disponibles.splice(Math.floor(rnd() * disponibles.length), 1)
         turnos.push({ de: 'deudor', texto: () => ronda.deudor })
         turnos.push({ de: 'agente', texto: ronda.agente })
+        ultimoTexto = ronda.agente(ctx)
       }
     }
     turnos.push(...guion.turnos)
@@ -557,18 +585,22 @@ export function generarHilos(opciones: OpcionesHilos): HiloSeed[] {
 
     // Un caso que un humano tomó siempre tiene dueño: dejarlo pausado y sin
     // asignar es el estado del que nadie se hace cargo.
-    const asignadaA = guion.pausa
+    // `usuarios: []` es un tenant recién creado, antes de que nadie entre. El
+    // índice sobre un arreglo vacío devolvía `undefined`, que no es `null` y se
+    // cuela hasta el `INSERT` como autor de una nota que no existe.
+    const deTurno = opciones.usuarios.length > 0
       ? opciones.usuarios[i % opciones.usuarios.length]
-      : i % 4 === 3
-        ? null
-        : opciones.usuarios[i % opciones.usuarios.length]
+      : null
+    const asignadaA = guion.pausa ? deTurno : i % 4 === 3 ? null : deTurno
 
     return {
       deudorId: o.deudorId,
       obligacionId: o.id,
       guion: guion.id,
       mensajes,
-      notas: guion.nota
+      // Sin equipo no hay notas: `notas.usuario_id` referencia a
+      // `tenant_usuarios`, y una nota sin autor no se puede ni guardar.
+      notas: guion.nota && opciones.usuarios.length > 0
         ? [
             {
               // Anclada al hilo, no a `finEn`: cuando los saltos a momentos

@@ -20,6 +20,7 @@ const DEUDOR: Deudor = {
   rol: 'titular',
   consentimiento: { otorgado: true, fuente: 'pagare', fecha: '2025-11-04', revocadoEn: null },
   preferencia: { canal: null, diaSemana: null, horaDesde: null, horaHasta: null },
+  numeroErradoEn: null,
 }
 
 const OBLIGACION: Obligacion = {

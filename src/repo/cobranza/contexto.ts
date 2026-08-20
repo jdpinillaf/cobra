@@ -32,7 +32,8 @@ export async function cargarContexto(
             o.saldo_total_centavos, o.fecha_vencimiento, o.dias_mora, o.tramo, o.estado,
             d.id AS d_id, d.tipo_documento, d.documento, d.nombre, d.telefonos, d.email, d.rol,
             d.consentimiento_otorgado, d.consentimiento_fuente, d.consentimiento_fecha,
-            d.revocado_en, d.pref_canal, d.pref_dia_semana, d.pref_hora_desde, d.pref_hora_hasta
+            d.revocado_en, d.numero_errado_en,
+            d.pref_canal, d.pref_dia_semana, d.pref_hora_desde, d.pref_hora_hasta
        FROM obligaciones o
        JOIN deudores d ON d.id = o.deudor_id AND d.tenant_id = o.tenant_id
       WHERE o.tenant_id = $1 AND o.id = $2`,
@@ -51,6 +52,7 @@ export async function cargarContexto(
     consentimiento_fecha: Date | null; revocado_en: Date | null
     pref_canal: 'whatsapp' | 'sms' | null; pref_dia_semana: number | null
     pref_hora_desde: number | null; pref_hora_hasta: number | null
+    numero_errado_en: Date | null
   }
 
   const fechaISO = (v: Date | string | null): string | null =>
@@ -77,6 +79,7 @@ export async function cargarContexto(
       horaDesde: f.pref_hora_desde,
       horaHasta: f.pref_hora_hasta,
     },
+    numeroErradoEn: f.numero_errado_en ? new Date(f.numero_errado_en).toISOString() : null,
   }
 
   const obligacion: Obligacion = {
