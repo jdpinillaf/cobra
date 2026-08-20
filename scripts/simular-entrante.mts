@@ -8,14 +8,18 @@
  * ventana de 24 h y la detección de opt-out. Lo que se ve acá es exactamente lo
  * que va a pasar el día que Meta llame de verdad, incluidos los bugs.
  *
- * Por eso no hay un botón en la consola que inyecte mensajes: un camino que solo
- * existe para la demo es el que después queda encendido donde no debe.
+ * La consola tiene ahora un botón que hace esto mismo, y arma el sobre con el
+ * mismo `construirPayloadEntrante`. La diferencia es cómo se autentica —acá la
+ * firma HMAC de Meta, allá la sesión más `tenants.modo_demo`— y que lo del botón
+ * queda marcado `proveedor = 'simulado'` en la fila. El camino de proceso es
+ * uno solo: `procesarWebhook`.
  *
  *   pnpm simular "+573266253427" "ya pagué ayer"
  *   pnpm simular "+573266253427" --imagen        (comprobante)
  *   pnpm simular "+573266253427" "no me contacten más"
  */
 import { createHmac } from 'node:crypto'
+import { construirPayloadEntrante } from '../src/channels/payload-simulado'
 
 /**
  * **No toca la base, a propósito.**
@@ -42,48 +46,17 @@ if (!telefono) {
 
 const esImagen = argumento === '--imagen'
 const wamid = `wamid.SIM${Date.now()}`
-const ahora = String(Math.floor(Date.now() / 1000))
 
-const mensaje = esImagen
-  ? {
-      from: telefono.replace(/^\+/, ''),
-      id: wamid,
-      timestamp: ahora,
-      type: 'image',
-      image: {
-        id: `media-sim-${Date.now()}`,
-        mime_type: 'image/jpeg',
-        sha256: 'simulado',
-        caption: 'acá está el comprobante',
-      },
-    }
-  : {
-      from: telefono.replace(/^\+/, ''),
-      id: wamid,
-      timestamp: ahora,
-      type: 'text',
-      text: { body: argumento },
-    }
-
-const payload = {
-  object: 'whatsapp_business_account',
-  entry: [
-    {
-      id: 'waba-simulada',
-      changes: [
-        {
-          field: 'messages',
-          value: {
-            messaging_product: 'whatsapp',
-            metadata: { display_phone_number: '573001112233', phone_number_id: NUMERO_EMPRESA },
-            contacts: [{ wa_id: telefono.replace(/^\+/, ''), profile: { name: 'Deudor' } }],
-            messages: [mensaje],
-          },
-        },
-      ],
-    },
-  ],
-}
+// El mismo sobre que arma el botón de la consola. Una sola forma de fabricar un
+// entrante, para que lo que se prueba acá sea lo que pasa allá.
+const payload = construirPayloadEntrante({
+  telefono,
+  phoneNumberId: NUMERO_EMPRESA,
+  texto: esImagen ? 'acá está el comprobante' : argumento,
+  idProveedor: wamid,
+  ocurridoEn: new Date(),
+  imagen: esImagen ? { id: `media-sim-${Date.now()}` } : undefined,
+})
 
 const cuerpo = JSON.stringify(payload)
 const firma = `sha256=${createHmac('sha256', SECRETO).update(cuerpo, 'utf8').digest('hex')}`

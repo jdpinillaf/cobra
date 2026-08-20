@@ -6,6 +6,7 @@ import {
   accionNota,
   accionPausar,
   accionReanudar,
+  accionSimularEntrante,
   accionTomar,
 } from '@/app/consola/(app)/conversaciones/[id]/acciones'
 
@@ -47,6 +48,7 @@ export function Controles({
   usuarioId,
   ventanaExpiraEn,
   plantillas,
+  modoDemo,
 }: {
   conversacionId: string
   agentePausado: boolean
@@ -54,11 +56,20 @@ export function Controles({
   usuarioId: string
   ventanaExpiraEn: string | null
   plantillas: PlantillaUI[]
+  /**
+   * Habilita el redactor que escribe **como el deudor**. Solo lo tienen los
+   * clientes marcados `modo_demo`, que es `false` por defecto.
+   *
+   * Esconderlo es comodidad, no seguridad: la regla la aplica `simularEntrante`
+   * en el servidor. Acá está para que nadie vea un botón que le va a decir que no.
+   */
+  modoDemo: boolean
 }) {
   const [pendiente, empezar] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [texto, setTexto] = useState('')
   const [nota, setNota] = useState('')
+  const [comoDeudor, setComoDeudor] = useState('')
   const [plantillaId, setPlantillaId] = useState('')
   const [variables, setVariables] = useState<string[]>([])
 
@@ -216,6 +227,38 @@ export function Controles({
               )}
             </>
           )}
+        </div>
+      )}
+
+      {modoDemo && (
+        <div className="mt-5 border-t border-dashed border-rule pt-4">
+          <p className="text-marca uppercase tracking-[0.14em] text-ink-faint">Modo demo</p>
+          <p className="mt-1 text-[13px] text-ink-faint">
+            Escribe como si escribiera el deudor. Entra por el mismo webhook que usa Meta —abre la
+            ventana de 24 h, detecta la baja— y queda marcado como simulado en el historial.
+          </p>
+          <textarea
+            value={comoDeudor}
+            onChange={(e) => setComoDeudor(e.target.value)}
+            rows={2}
+            placeholder="Lo que diría el deudor…"
+            aria-label="Mensaje como el deudor"
+            className="mt-2 w-full resize-y border border-dashed border-rule-strong bg-paper px-3 py-2 text-sm outline-none focus:border-ink"
+          />
+          <button
+            type="button"
+            disabled={pendiente || comoDeudor.trim() === ''}
+            onClick={() =>
+              correr(async () => {
+                const r = await accionSimularEntrante(conversacionId, comoDeudor)
+                if (r.ok) setComoDeudor('')
+                return r
+              })
+            }
+            className={`mt-2 text-sm ${BOTON}`}
+          >
+            Recibir como deudor
+          </button>
         </div>
       )}
 

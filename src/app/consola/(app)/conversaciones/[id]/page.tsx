@@ -5,6 +5,7 @@ import { fechaCorta, horaDeReloj } from '@/components/demo/hora'
 import { cop } from '@/lib/formato'
 import { Controles } from '@/components/consola/bandeja/Controles'
 import { expedienteDeConversacion, hiloDeConversacion } from '@/repo/cobranza/conversaciones'
+import { enModoDemo } from '@/bandeja/simular-entrante'
 import { plantillasAprobadas, ventanaDe } from '@/repo/cobranza/ventanas'
 import { obtenerDb } from '@/repo/conexion'
 
@@ -29,10 +30,11 @@ export default async function PaginaHilo({ params }: { params: Promise<{ id: str
   const expediente = await expedienteDeConversacion(db, sesion.tenantId, id)
   if (!expediente) notFound()
 
-  const [hilo, ventana, plantillas] = await Promise.all([
+  const [hilo, ventana, plantillas, modoDemo] = await Promise.all([
     hiloDeConversacion(db, sesion.tenantId, id),
     ventanaDe(db, sesion.tenantId, expediente.deudorId),
     plantillasAprobadas(db, sesion.tenantId),
+    enModoDemo(db, sesion.tenantId),
   ])
 
   return (
@@ -90,6 +92,7 @@ export default async function PaginaHilo({ params }: { params: Promise<{ id: str
           asignadaA={expediente.asignadaA}
           usuarioId={sesion.usuarioId}
           ventanaExpiraEn={ventana?.expiraEn ?? null}
+          modoDemo={modoDemo}
           plantillas={plantillas.map((p) => ({
             id: p.id,
             nombre: p.nombre,

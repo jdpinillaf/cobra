@@ -50,10 +50,14 @@ const EMPRESA = 'Ferretería El Tornillo S.A.S.'
 const db = await obtenerDb()
 
 await db.query(
-  `INSERT INTO tenants (id, nombre, nit, cuenta_ultimos4, cuenta_titular, capacidades, estado)
+  // `modo_demo` habilita el redactor que escribe como el deudor. Este tenant es
+  // de demostración por definición —cartera inventada, teléfonos inventados—, y
+  // sin la bandera no hay forma de mostrar una conversación de punta a punta.
+  // Un cliente real nace con la bandera en `false` y encenderla es un UPDATE.
+  `INSERT INTO tenants (id, nombre, nit, cuenta_ultimos4, cuenta_titular, capacidades, estado, modo_demo)
    VALUES ($1, $2, '901234567-1', '4129',
-           'FERRETERIA EL TORNILLO SAS', ARRAY['cobranza'], 'activo')
-   ON CONFLICT (id) DO NOTHING`,
+           'FERRETERIA EL TORNILLO SAS', ARRAY['cobranza'], 'activo', true)
+   ON CONFLICT (id) DO UPDATE SET modo_demo = true`,
   [TENANT_DEV, EMPRESA],
 )
 await db.query(

@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { requerirSesion } from '@/auth/actual'
 import { enviarManual } from '@/bandeja/enviar'
+import { simularEntrante } from '@/bandeja/simular-entrante'
 import { asignar, pausarAgente, reanudarAgente } from '@/repo/cobranza/conversaciones'
 import { obtenerDb } from '@/repo/conexion'
 
@@ -86,6 +87,31 @@ export async function accionEnviar(
     usuarioId: sesion.usuarioId,
     conversacionId,
     datos,
+  })
+
+  revalidatePath(`/consola/conversaciones/${conversacionId}`)
+  return r.ok ? { ok: true } : { ok: false, error: r.error }
+}
+
+/**
+ * Escribir como si escribiera el deudor. Solo en modo demo.
+ *
+ * Envoltura delgada, igual que `accionEnviar`: la sesión y nada más. Las cuatro
+ * cerraduras —pasar por `procesarWebhook`, tenant de la sesión, exigir
+ * `modo_demo`, marcar la fila como `simulado`— viven en `simularEntrante`, que
+ * se puede probar sin Next.
+ */
+export async function accionSimularEntrante(
+  conversacionId: string,
+  texto: string,
+): Promise<ResultadoAccion> {
+  const sesion = await requerirSesion()
+  const db = await obtenerDb()
+
+  const r = await simularEntrante(db, {
+    tenantId: sesion.tenantId,
+    conversacionId,
+    texto,
   })
 
   revalidatePath(`/consola/conversaciones/${conversacionId}`)

@@ -19,10 +19,23 @@ import { renovarVentana } from './ventanas'
  * desde ahí todo lo que escribe esta clase ya está acotado.
  */
 export class RepositorioPostgres implements RepositorioWebhook {
+  /**
+   * Quién dice que trajo el mensaje.
+   *
+   * `meta` es lo normal. `simulado` lo usa el botón de demo de la consola, y no
+   * es cosmético: un mensaje que nos inventamos nosotros no puede contarse como
+   * evidencia ante la SIC ni sumar en la pantalla de consumo. Queda escrito en
+   * la fila, para siempre, y cualquier consulta puede separarlos.
+   */
+  private readonly proveedor: 'meta' | 'simulado'
+
   constructor(
     private readonly db: Db,
     private readonly tenantId: string,
-  ) {}
+    opciones: { proveedor?: 'meta' | 'simulado' } = {},
+  ) {
+    this.proveedor = opciones.proveedor ?? 'meta'
+  }
 
   /**
    * Idempotencia atómica: se intenta insertar y el conflicto es la respuesta.
@@ -123,7 +136,7 @@ export class RepositorioPostgres implements RepositorioWebhook {
       resultado: 'entregado',
       costoCop: 0,
       idProveedor: mensaje.idProveedor,
-      proveedor: 'meta',
+      proveedor: this.proveedor,
     })
 
     if (mensaje.media) {
