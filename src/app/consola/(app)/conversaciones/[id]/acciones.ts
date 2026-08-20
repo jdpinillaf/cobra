@@ -1,10 +1,11 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 import { requerirSesion } from '@/auth/actual'
 import { enviarManual } from '@/bandeja/enviar'
 import { simularEntrante } from '@/bandeja/simular-entrante'
-import { asignar, pausarAgente, reanudarAgente } from '@/repo/cobranza/conversaciones'
+import { asignar, cerrarConversacion, pausarAgente, reanudarAgente } from '@/repo/cobranza/conversaciones'
 import { obtenerDb } from '@/repo/conexion'
 
 /**
@@ -67,6 +68,28 @@ export async function accionNota(conversacionId: string, cuerpo: string): Promis
 
   revalidatePath(`/consola/conversaciones/${conversacionId}`)
   return { ok: true }
+}
+
+/**
+ * Dar el caso por terminado.
+ *
+ * El hilo sale de la bandeja y deja de bloquear la apertura del siguiente — el
+ * índice parcial permite una sola conversación abierta por deudor, así que sin
+ * esto no había forma de empezar de cero nunca.
+ *
+ * No borra nada: los contactos y las notas siguen colgando del hilo cerrado y
+ * el historial del deudor los sigue mostrando. Y si el deudor vuelve a
+ * escribir, se le abre uno nuevo solo.
+ */
+export async function accionCerrar(conversacionId: string): Promise<ResultadoAccion> {
+  const sesion = await requerirSesion()
+  const db = await obtenerDb()
+
+  const cerrada = await cerrarConversacion(db, sesion.tenantId, conversacionId)
+  if (!cerrada) return { ok: false, error: 'Ese hilo ya estaba cerrado.' }
+
+  revalidatePath('/consola/conversaciones')
+  redirect('/consola/conversaciones')
 }
 
 /**

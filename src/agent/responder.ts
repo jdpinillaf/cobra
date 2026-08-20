@@ -71,6 +71,17 @@ export async function responderEntrante(
     return { respondio: false, razon: 'sin_obligacion', detalle: 'No hay obligación que gestionar.' }
   }
 
+  // Los dos `registrarContacto` de abajo —el bloqueo y el envío— comparten a
+  // quién y en qué hilo. Lo único que cambia es qué pasó.
+  const contacto = {
+    obligacionId: puerto.obligacion.id,
+    deudorId: puerto.deudor.id,
+    conversacionId: params.conversacionId,
+    canal: 'whatsapp',
+    direccion: 'saliente',
+    timestamp: ahora.toISOString(),
+  } as const
+
   const compuerta = evaluarRespuesta({
     ahora,
     deudor: puerto.deudor,
@@ -97,12 +108,7 @@ export async function responderEntrante(
       // una pausa no: escribirla inventaría un intento de contacto que nunca
       // hubo y ensuciaría el reporte de cumplimiento con decisiones operativas.
       await registrarContacto(db, params.tenantId, {
-        obligacionId: puerto.obligacion.id,
-        deudorId: puerto.deudor.id,
-        conversacionId: params.conversacionId,
-        canal: 'whatsapp',
-        direccion: 'saliente',
-        timestamp: ahora.toISOString(),
+        ...contacto,
         cuerpo: '',
         resultado: 'bloqueado',
         motivoBloqueo: `${compuerta.motivo}: ${compuerta.detalle}`,
@@ -156,12 +162,7 @@ export async function responderEntrante(
   // Se registra salga o no: un intento fallido sigue siendo un intento, y el
   // asesor tiene que verlo en el hilo.
   await registrarContacto(db, params.tenantId, {
-    obligacionId: puerto.obligacion.id,
-    deudorId: puerto.deudor.id,
-    conversacionId: params.conversacionId,
-    canal: 'whatsapp',
-    direccion: 'saliente',
-    timestamp: ahora.toISOString(),
+    ...contacto,
     cuerpo: respuesta.texto,
     resultado: enviado.estado,
     motivoBloqueo: enviado.ok ? null : (enviado.error ?? 'fallo de envío'),

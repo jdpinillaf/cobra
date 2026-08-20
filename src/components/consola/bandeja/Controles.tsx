@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import {
   accionEnviar,
   accionNota,
+  accionCerrar,
   accionPausar,
   accionReanudar,
   accionSimularEntrante,
@@ -74,7 +75,7 @@ export function Controles({
    * estaba saliendo un mensaje al deudor cuando no salía ninguno. En una
    * pantalla que gasta plata del cliente, eso no es un detalle de estilo.
    */
-  const [enCurso, setEnCurso] = useState<'enviar' | 'recibir' | null>(null)
+  const [enCurso, setEnCurso] = useState<'enviar' | 'recibir' | 'cerrar' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [texto, setTexto] = useState('')
   const [nota, setNota] = useState('')
@@ -87,7 +88,7 @@ export function Controles({
 
   const correr = (
     fn: () => Promise<{ ok: boolean; error?: string }>,
-    cual: 'enviar' | 'recibir' | null = null,
+    cual: 'enviar' | 'recibir' | 'cerrar' | null = null,
   ) => {
     setError(null)
     setEnCurso(cual)
@@ -134,6 +135,15 @@ export function Controles({
             {asignadaA ? 'Tomar el hilo' : 'Asignármelo'}
           </button>
         )}
+
+        <button
+          type="button"
+          disabled={pendiente}
+          onClick={() => correr(() => accionCerrar(conversacionId), 'cerrar')}
+          className={BOTON}
+        >
+          {enCurso === 'cerrar' ? 'Cerrando…' : 'Cerrar el hilo'}
+        </button>
 
         <span className={`ml-auto text-[13px] ${abierta ? 'text-entregado' : 'text-diferido'}`}>
           {abierta && ventanaExpiraEn

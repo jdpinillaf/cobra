@@ -51,7 +51,15 @@ export interface PuertoAgente {
   anotarPaso(paso: Omit<PasoTraza, 'id' | 'ts'>): Promise<void>
   /** Parte variable de la referencia de pago. Tiene que ser distinta cada vez. */
   nonce(): string
-  /** Id para un acuerdo o un pago nuevo. En memoria es un contador; en base, un uuid. */
+  /**
+   * Id para un acuerdo o un pago nuevo. En memoria es un contador legible
+   * (`acu_3`); contra base tiene que ser un **uuid**, porque `acuerdos.id` y
+   * `pagos.id` son `uuid` en el esquema.
+   *
+   * Por eso son dos y no uno con `nonce()`: el nonce viaja dentro de una URL
+   * que el deudor a veces teclea, así que es corto y sin guiones. Fusionarlos
+   * obligaría a elegir entre una llave primaria inválida y un link impronunciable.
+   */
   nuevoId(prefijo: 'acu' | 'pag'): string
   /**
    * Lo que costó pensar este turno.

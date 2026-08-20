@@ -31,11 +31,10 @@ export function construirPayloadEntrante(e: EntranteSimulado): unknown {
   const waId = e.telefono.replace(/^\+/, '')
   const timestamp = String(Math.floor(e.ocurridoEn.getTime() / 1000))
 
+  const sobre = { from: waId, id: e.idProveedor, timestamp }
   const mensaje = e.imagen
     ? {
-        from: waId,
-        id: e.idProveedor,
-        timestamp,
+        ...sobre,
         type: 'image',
         image: {
           id: e.imagen.id,
@@ -44,13 +43,7 @@ export function construirPayloadEntrante(e: EntranteSimulado): unknown {
           caption: e.imagen.caption ?? e.texto,
         },
       }
-    : {
-        from: waId,
-        id: e.idProveedor,
-        timestamp,
-        type: 'text',
-        text: { body: e.texto },
-      }
+    : { ...sobre, type: 'text', text: { body: e.texto } }
 
   return {
     object: 'whatsapp_business_account',
