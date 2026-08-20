@@ -65,6 +65,22 @@ Un turno del modelo tardó **18 segundos** en la prueba local. Para WhatsApp es
 mucho: conviene medirlo en la pantalla de Consumo antes de encenderlo con un
 cliente.
 
+### Dos límites del agente que hoy no se ven
+
+**Un solo número remitente para todos los clientes.** El webhook resuelve de
+qué cliente es cada mensaje por `tenants.phone_number_id`, pero
+`crearProveedores` arma el proveedor con `META_PHONE_NUMBER_ID` del entorno, y
+ese id **es** el remitente. Con un solo cliente no se nota. Con dos vivos en la
+misma WABA, el agente le contestaría al deudor del segundo desde el número del
+primero. El arreglo son credenciales por tenant, no una línea.
+
+**En el camino del agente, RLS no aplica.** El turno corre en `after()`, fuera
+de la transacción de `conTenant` — a propósito, porque esperar al modelo con
+una conexión reservada vacía el pool. El costo es que ahí el aislamiento
+depende del `WHERE tenant_id` de cada consulta del repositorio, sin la red de
+seguridad de las políticas. Está revisado consulta por consulta; lo que no hay
+es algo que lo verifique solo mañana.
+
 ## El modo demo, y por qué no es un agujero
 
 `tenants.modo_demo` habilita en la consola un redactor que escribe **como si
