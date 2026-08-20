@@ -42,7 +42,27 @@ export async function abrirOReutilizar(
       WHERE tenant_id = $1 AND deudor_id = $2 AND cerrada_en IS NULL`,
     [tenantId, params.deudorId],
   )
-  if (abiertas.length > 0) return { id: abiertas[0].id, nueva: false }
+  if (abiertas.length > 0) {
+    // El hilo sigue a la obligación viva.
+    //
+    // Un deudor tiene una sola conversación abierta pero puede tener varias
+    // obligaciones en el tiempo. El puntero se fijaba al abrir y no se movía:
+    // pagada la primera y abierta la segunda, el hilo seguía apuntando a la
+    // pagada, y el agente citaba el saldo de un crédito cancelado o el guard
+    // devolvía `obligacion_cerrada` mientras el deudor tenía deuda viva.
+    //
+    // Solo hacia adelante: si no llega ninguna obligación viva se conserva la
+    // que estaba, porque borrarla perdería de qué venía hablando el hilo y el
+    // caso es para una persona de todos modos.
+    if (params.obligacionId) {
+      await db.query(
+        `UPDATE conversaciones SET obligacion_id = $3
+          WHERE tenant_id = $1 AND id = $2 AND obligacion_id IS DISTINCT FROM $3`,
+        [tenantId, abiertas[0].id, params.obligacionId],
+      )
+    }
+    return { id: abiertas[0].id, nueva: false }
+  }
 
   // `ON CONFLICT` con el WHERE del índice parcial repetido: sin esa cláusula
   // Postgres no infiere un índice parcial y el INSERT levanta 23505.

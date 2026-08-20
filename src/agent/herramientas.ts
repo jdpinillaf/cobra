@@ -221,7 +221,7 @@ export function crearHerramientas(ctx: ContextoHerramientas) {
       }),
       execute: async ({ consulta }) => {
         const encontradas = buscarPoliticas(consulta)
-        paso(
+        await paso(
           'consultarPoliticas',
           encontradas.length
             ? encontradas.map((p) => p.titulo).join(' · ')

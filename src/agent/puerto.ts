@@ -21,8 +21,8 @@ import {
  * las que aplican los límites de negociación, y dos copias de un candado es una
  * copia que algún día se afloja sola.
  *
- * Así que se nombra la frontera. Diez operaciones, dos implementaciones, y el
- * agente no sabe cuál le tocó.
+ * Así que se nombra la frontera: cuatro lecturas y ocho operaciones, con dos
+ * implementaciones, y el agente no sabe cuál le tocó.
  *
  * Las lecturas son campos y no métodos a propósito: se cargan una vez antes del
  * turno y no cambian durante él. Un `saldoTotal` que pudiera cambiar entre dos

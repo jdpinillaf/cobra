@@ -26,6 +26,22 @@ import { obtenerDb } from '@/repo/conexion'
  */
 
 /**
+ * El `after()` corre con la duración máxima de la ruta, no con la del request.
+ *
+ * Adentro va un turno del modelo de hasta ocho pasos más el envío. Sin declarar
+ * esto, la plataforma corta con su default y puede dejar el estado a medias:
+ * acuerdo escrito, obligación en `acuerdo_vigente` —o sea cadencia frenada— y
+ * el deudor sin recibir nunca la confirmación.
+ */
+export const maxDuration = 300
+
+interface Pendiente {
+  tenantId: string
+  conversacionId: string
+  telefono: string
+}
+
+/**
  * De qué cliente es cada evento.
  *
  * Meta agrupa en una sola entrega los eventos de todos los números de una misma
@@ -38,17 +54,9 @@ import { obtenerDb } from '@/repo/conexion'
  * un número dado de baja, o una suscripción vieja que Meta todavía no soltó, y
  * no es motivo para devolver error y hacer que reintente el lote entero.
  */
-interface Pendiente {
-  tenantId: string
-  conversacionId: string
-}
-
-async function procesarPorTenant(
-  payload: unknown,
-): Promise<{ ignorados: number; pendientes: Pendiente[] }> {
+async function procesarPorTenant(payload: unknown, urlBase: string): Promise<{ ignorados: number }> {
   const db = await obtenerDb()
   let ignorados = 0
-  const pendientes: Pendiente[] = []
 
   for (const numero of numerosDelPayload(payload)) {
     const [tenant] = await db.query<{ id: string }>(
@@ -63,12 +71,17 @@ async function procesarPorTenant(
     const resumen = await conTenant(db, tenant.id, (tx) =>
       procesarWebhook(filtrarPorNumero(payload, numero), new RepositorioPostgres(tx, tenant.id)),
     )
-    for (const hilo of resumen.aResponder) {
-      pendientes.push({ tenantId: tenant.id, conversacionId: hilo.conversacionId })
-    }
+    // El `after()` se registra por tenant, apenas ese tenant commiteó. Antes se
+    // acumulaban todos y se registraban al final: si el tercero lanzaba, se
+    // perdían los pendientes de los dos primeros y esos deudores no recibían
+    // respuesta nunca, aunque su entrante ya estuviera escrito.
+    responderDespues(
+      resumen.aResponder.map((h) => ({ tenantId: tenant.id, ...h })),
+      urlBase,
+    )
   }
 
-  return { ignorados, pendientes }
+  return { ignorados }
 }
 
 /**
@@ -96,6 +109,7 @@ function responderDespues(pendientes: Pendiente[], urlBase: string): void {
         await responderEntrante(db, {
           tenantId: p.tenantId,
           conversacionId: p.conversacionId,
+          paraTelefono: p.telefono,
           urlBase,
         })
       } catch (e) {
@@ -156,11 +170,10 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const { ignorados, pendientes } = await procesarPorTenant(payload)
+    const { ignorados } = await procesarPorTenant(payload, new URL(request.url).origin)
     if (ignorados > 0) {
       console.warn(`[whatsapp-webhook] ${ignorados} número(s) sin tenant activo`)
     }
-    responderDespues(pendientes, new URL(request.url).origin)
   } catch (e) {
     // Se responde 200 igual. Meta reintenta ante cualquier no-2xx y, si el
     // payload es el que rompe, el reintento vuelve a romper: se entra en un

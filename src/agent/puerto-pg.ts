@@ -37,6 +37,14 @@ export class PuertoPostgres implements PuertoAgente {
    * que el guard responda `acuerdo_vigente` y frene la cadencia. Si el INSERT
    * pasara y el UPDATE fallara, quedaría un deudor que acordó y un motor que le
    * sigue escribiendo — que es hostigamiento, y encima del caso que salió bien.
+   *
+   * El `NOT IN` deja afuera solo lo que de verdad está cerrado. **`castigada` no
+   * lo está**: es la cartera que se dio por perdida y donde más se negocia —el
+   * cliente autoriza 50 % de descuento y 12 cuotas justamente ahí, porque
+   * recuperar la mitad es ganancia—. Excluirla hacía que el UPDATE fuera un
+   * no-op silencioso: el acuerdo quedaba escrito, la obligación seguía en
+   * `castigada`, el guard no la frenaba porque `castigada` no es motivo de
+   * bloqueo, y el motor le seguía escribiendo al que acababa de acordar.
    */
   async guardarAcuerdo(acuerdo: Acuerdo): Promise<void> {
     await this.db.transaccion(async (tx) => {
@@ -62,7 +70,7 @@ export class PuertoPostgres implements PuertoAgente {
 
       await tx.query(
         `UPDATE obligaciones SET estado = 'acuerdo_vigente'
-          WHERE tenant_id = $1 AND id = $2 AND estado NOT IN ('pagada','castigada','juridico')`,
+          WHERE tenant_id = $1 AND id = $2 AND estado NOT IN ('pagada','juridico')`,
         [this.tenantId, acuerdo.obligacionId],
       )
     })

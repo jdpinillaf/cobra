@@ -128,6 +128,79 @@ describe('procesarWebhook', () => {
   })
 })
 
+describe('una ráfaga del deudor es un solo turno', () => {
+  it('la respuesta sale al número desde el que escribió, no al primero de la cartera', async () => {
+    // `deudores.telefonos` es un array y el webhook matchea cualquiera. Si el
+    // deudor escribió desde el segundo, contestarle al primero manda las cifras
+    // de su deuda a un teléfono que no escribió — en cartera importada, casi
+    // siempre un familiar o una referencia.
+    const repo = new RepositorioEnMemoria()
+    repo.registrarEntrante = async () => ({ conversacionId: 'hilo-unico' })
+
+    const resumen = await procesarWebhook(
+      payload({ entrantes: [{ id: 'wamid.30', from: '573004445566', body: 'hola' }] }),
+      repo,
+    )
+
+    expect(resumen.aResponder[0].telefono).toBe('+573004445566')
+  })
+
+  it('dos mensajes del mismo deudor en un POST dejan un solo hilo por responder', async () => {
+    // Meta entrega `value.messages[]` como array: el deudor manda "hola" y
+    // enseguida "cuánto debo", y las dos llegan en la misma entrega. Los dos
+    // wamid son distintos, así que la idempotencia no los toca — y los dos
+    // caían en el mismo hilo, porque `abrirOReutilizar` reusa el abierto.
+    //
+    // Sin deduplicar, el agente contesta dos veces: dos mensajes al deudor, dos
+    // turnos de modelo cobrados, y la posibilidad de dos acuerdos o dos links
+    // de pago para la misma obligación.
+    const repo = new RepositorioEnMemoria()
+    // El repo en memoria no resuelve hilos; se fuerza el mismo id para el caso.
+    repo.registrarEntrante = async () => ({ conversacionId: 'hilo-unico' })
+
+    const resumen = await procesarWebhook(
+      payload({
+        entrantes: [
+          { id: 'wamid.10', from: '573009998877', body: 'hola' },
+          { id: 'wamid.11', from: '573009998877', body: 'cuánto debo' },
+        ],
+      }),
+      repo,
+    )
+
+    // Los dos entrantes se registran: los dos son evidencia y los dos van al hilo.
+    expect(resumen.entrantesRegistrados).toBe(2)
+    // Pero se responde una sola vez, con los dos mensajes ya en el contexto.
+    expect(resumen.aResponder).toEqual([
+      { conversacionId: 'hilo-unico', telefono: '+573009998877' },
+    ])
+  })
+
+  it('dos deudores distintos en el mismo lote sí son dos turnos', async () => {
+    const repo = new RepositorioEnMemoria()
+    const porTelefono: Record<string, string> = {
+      '+573009998877': 'hilo-a',
+      '+573001112233': 'hilo-b',
+    }
+    repo.registrarEntrante = async (m) => ({ conversacionId: porTelefono[m.deTelefono] })
+
+    const resumen = await procesarWebhook(
+      payload({
+        entrantes: [
+          { id: 'wamid.20', from: '573009998877', body: 'hola' },
+          { id: 'wamid.21', from: '573001112233', body: 'hola' },
+        ],
+      }),
+      repo,
+    )
+
+    expect(resumen.aResponder).toEqual([
+      { conversacionId: 'hilo-a', telefono: '+573009998877' },
+      { conversacionId: 'hilo-b', telefono: '+573001112233' },
+    ])
+  })
+})
+
 describe('número que no corresponde', () => {
   const dice = (id: string, body: string) =>
     payload({ entrantes: [{ id, from: '573009998877', body }] })

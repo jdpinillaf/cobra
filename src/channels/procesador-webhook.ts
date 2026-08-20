@@ -55,14 +55,33 @@ export interface ResumenWebhook {
   numerosErrados: number
   duplicadosIgnorados: number
   /**
-   * Los hilos donde entró un mensaje **nuevo**, en orden.
+   * Los hilos donde entró un mensaje **nuevo**, sin repetir.
    *
-   * Es lo que el llamador necesita para hacer contestar al agente, y sale de
-   * acá y no de un `count` porque los duplicados de Meta no se responden dos
-   * veces. Procesar no es responder: esta función registra, y quien la llama
-   * decide qué hacer con lo registrado.
+   * Es lo que el llamador necesita para hacer contestar al agente. Procesar no
+   * es responder: esta función registra, y quien la llama decide qué hacer con
+   * lo registrado.
+   *
+   * **Un hilo aparece una sola vez aunque hayan entrado tres mensajes suyos.**
+   * `value.messages[]` es un array: el deudor manda "hola" y enseguida "cuánto
+   * debo", y las dos llegan en la misma entrega con wamid distintos, así que la
+   * idempotencia no las toca y las dos caen en el mismo hilo. Responder una vez
+   * por mensaje sería contestarle dos veces a quien escribió dos renglones
+   * seguidos —dos turnos de modelo cobrados, y la posibilidad de dos acuerdos
+   * para la misma obligación—. El turno se hace después de registrarlos todos,
+   * así que el agente los ve a los dos y contesta una vez.
    */
-  aResponder: Array<{ conversacionId: string }>
+  aResponder: Array<{
+    conversacionId: string
+    /**
+     * El número **desde el que escribió**, que no siempre es el primero de la
+     * cartera. `deudores.telefonos` es un array y el webhook matchea cualquiera
+     * de ellos; responder al primero le manda las cifras de la deuda a un
+     * teléfono que no escribió — que en cartera importada suele ser un familiar
+     * o una referencia. Y Meta cuenta la ventana de 24 h por destinatario, así
+     * que además el envío fallaría.
+     */
+    telefono: string
+  }>
 }
 
 /**
@@ -126,7 +145,9 @@ export async function procesarWebhook(
 
     await repo.marcarProcesado(llave)
     resumen.entrantesRegistrados += 1
-    if (hilo) resumen.aResponder.push(hilo)
+    if (hilo && !resumen.aResponder.some((h) => h.conversacionId === hilo.conversacionId)) {
+      resumen.aResponder.push({ ...hilo, telefono: mensaje.deTelefono })
+    }
   }
 
   return resumen

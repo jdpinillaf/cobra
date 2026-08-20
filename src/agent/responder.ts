@@ -38,6 +38,16 @@ export async function responderEntrante(
   params: {
     tenantId: string
     conversacionId: string
+    /**
+     * A qué número contestar. Por defecto, el principal de la cartera.
+     *
+     * El webhook pasa el número **desde el que escribió el deudor**, que no
+     * siempre es ese: `deudores.telefonos` es un array y el match acepta
+     * cualquiera. Contestarle al primero manda las cifras de la deuda a un
+     * teléfono que no escribió, y en cartera importada el segundo número suele
+     * ser un familiar o una referencia.
+     */
+    paraTelefono?: string
     ahora?: Date
     urlBase: string
     proveedor?: ChannelProvider
@@ -137,7 +147,7 @@ export async function responderEntrante(
 
   const proveedor = params.proveedor ?? crearProveedores().whatsapp
   const enviado = await proveedor.enviar({
-    para: expediente.telefono,
+    para: params.paraTelefono ?? expediente.telefono,
     canal: 'whatsapp',
     cuerpo: respuesta.texto,
     categoria,

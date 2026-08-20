@@ -75,12 +75,23 @@ export async function pensar(params: {
     // Se anota **antes** de validar el texto. Un turno que vuelve vacío gastó
     // los tokens igual, y esconderlo de la cuenta hace que el costo por
     // conversación se vea más barato justo en los casos que salieron mal.
-    await puerto.anotarConsumoIa({
-      proveedor: elegido.etiqueta,
-      tokensEntrada: usage.inputTokens ?? null,
-      tokensSalida: usage.outputTokens ?? null,
-      latenciaMs: Date.now() - empezoEn,
-    })
+    //
+    // Y con su propio `catch`: la contabilidad no puede tirar una respuesta
+    // buena. Estando dentro del `try` de afuera, un INSERT fallido se leía como
+    // "falló el modelo", se descartaba un texto correcto, se anotaba una
+    // mentira en el log y se caía al guion — que si el modelo ya había llamado
+    // a `proponerAcuerdo` podía escribir un segundo acuerdo sobre la misma
+    // obligación.
+    try {
+      await puerto.anotarConsumoIa({
+        proveedor: elegido.etiqueta,
+        tokensEntrada: usage.inputTokens ?? null,
+        tokensSalida: usage.outputTokens ?? null,
+        latenciaMs: Date.now() - empezoEn,
+      })
+    } catch (error) {
+      console.error('[cerebro] no se pudo anotar el consumo de IA:', error)
+    }
 
     const limpio = text.trim()
     // Un turno que termina sin texto (solo tool calls) dejaría al deudor sin

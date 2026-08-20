@@ -179,4 +179,67 @@ describe('cerrarConversacion', () => {
     expect(await cerrarConversacion(base.db, OTRO, id)).toBe(false)
     expect(await listarBandeja(base.db, TENANT, { usuarioId: USUARIO })).toHaveLength(1)
   })
+
+  it('el hilo sigue a la obligación viva cuando la vieja se paga', async () => {
+    // Un deudor tiene una sola conversación abierta, pero puede tener varias
+    // obligaciones a lo largo del tiempo. `conversaciones.obligacion_id` se
+    // fijaba al abrir y no se movía nunca: pagada la primera y abierta la
+    // segunda, el hilo seguía apuntando a la pagada. El agente citaba el saldo
+    // de un crédito ya cancelado, o el guard devolvía `obligacion_cerrada` y
+    // escribía un bloqueo mientras el deudor tenía deuda viva. Expediente e
+    // hilo se contradecían en la misma pantalla.
+    const primera = await crearDeudorConObligacion(base.db, TENANT, DATOS)
+    const ahora = new Date().toISOString()
+    const hilo = await abrirOReutilizar(base.db, TENANT, {
+      deudorId: primera.deudorId,
+      obligacionId: primera.obligacionId,
+      ahora,
+    })
+
+    await base.db.query(`UPDATE obligaciones SET estado = 'pagada' WHERE tenant_id = $1`, [TENANT])
+    const segunda = await crearDeudorConObligacion(base.db, TENANT, {
+      ...DATOS,
+      numeroCredito: 'CR-9002',
+      saldoTotal: 800_000,
+    })
+
+    const reusado = await abrirOReutilizar(base.db, TENANT, {
+      deudorId: primera.deudorId,
+      obligacionId: segunda.obligacionId,
+      ahora,
+    })
+
+    expect(reusado.id).toBe(hilo.id)
+    expect(reusado.nueva).toBe(false)
+
+    const [fila] = await base.db.query<{ obligacion_id: string }>(
+      `SELECT obligacion_id FROM conversaciones WHERE tenant_id = $1 AND id = $2`,
+      [TENANT, hilo.id],
+    )
+    expect(fila.obligacion_id).toBe(segunda.obligacionId)
+  })
+
+  it('sin obligación viva el hilo conserva la que tenía', async () => {
+    // El deudor terminó de pagar y escribe. Borrar el puntero perdería de qué
+    // venía hablando el hilo, y el caso es para una persona igual.
+    const creado = await crearDeudorConObligacion(base.db, TENANT, DATOS)
+    const ahora = new Date().toISOString()
+    const hilo = await abrirOReutilizar(base.db, TENANT, {
+      deudorId: creado.deudorId,
+      obligacionId: creado.obligacionId,
+      ahora,
+    })
+
+    await abrirOReutilizar(base.db, TENANT, {
+      deudorId: creado.deudorId,
+      obligacionId: null,
+      ahora,
+    })
+
+    const [fila] = await base.db.query<{ obligacion_id: string }>(
+      `SELECT obligacion_id FROM conversaciones WHERE tenant_id = $1 AND id = $2`,
+      [TENANT, hilo.id],
+    )
+    expect(fila.obligacion_id).toBe(creado.obligacionId)
+  })
 })

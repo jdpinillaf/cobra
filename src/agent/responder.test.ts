@@ -291,4 +291,101 @@ describe('responderEntrante', () => {
     // órdenes de magnitud en un acuerdo de pago.
     expect(Number(guardado.monto_acordado_centavos)).toBe(120_000_000)
   })
+
+  it('la cartera castigada también queda frenada al acordar', async () => {
+    // `castigada` no es cartera cerrada: es donde más se negocia, porque el
+    // cliente autoriza 50 % de descuento y 12 cuotas ahí. Estaba en el `NOT IN`
+    // del UPDATE, así que el acuerdo se escribía, la obligación seguía en
+    // `castigada`, el guard no la frenaba —`castigada` no es motivo de
+    // bloqueo— y el motor le seguía escribiendo al que acababa de acordar.
+    const { PuertoPostgres } = await import('./puerto-pg')
+    const { cargarContexto } = await import('@/repo/cobranza/contexto')
+
+    await base.db.query(`UPDATE obligaciones SET estado = 'castigada' WHERE tenant_id = $1`, [
+      TENANT,
+    ])
+    const [obl] = await base.db.query<{ id: string }>(
+      `SELECT id FROM obligaciones WHERE tenant_id = $1`,
+      [TENANT],
+    )
+    const ctx = (await cargarContexto(base.db, TENANT, obl.id))!
+    const puerto: PuertoAgente = new PuertoPostgres(
+      base.db,
+      TENANT,
+      conversacionId,
+      ctx.deudor,
+      ctx.obligacion,
+      [],
+      null,
+    )
+
+    await puerto.guardarAcuerdo({
+      id: puerto.nuevoId('acu'),
+      clienteId: TENANT,
+      obligacionId: obl.id,
+      tipo: 'cuotas',
+      montoAcordado: 600_000,
+      descuentoPct: 50,
+      numeroCuotas: 12,
+      primeraCuotaEl: '2026-08-20',
+      estado: 'aprobado',
+      propuestoEn: MARTES.toISOString(),
+      aprobadoPor: null,
+      aprobadoEn: MARTES.toISOString(),
+      motivoRechazo: null,
+    })
+
+    const [despues] = await base.db.query<{ estado: string }>(
+      `SELECT estado FROM obligaciones WHERE tenant_id = $1 AND id = $2`,
+      [TENANT, obl.id],
+    )
+    expect(despues.estado).toBe('acuerdo_vigente')
+  })
+
+  it('lo que sí está cerrado no se reabre por un acuerdo', async () => {
+    // Una obligación pagada o en jurídico no vuelve a `acuerdo_vigente`: el
+    // caso salió del agente y reabrirlo lo devolvería a la cadencia.
+    const { PuertoPostgres } = await import('./puerto-pg')
+    const { cargarContexto } = await import('@/repo/cobranza/contexto')
+
+    const [obl] = await base.db.query<{ id: string }>(
+      `SELECT id FROM obligaciones WHERE tenant_id = $1`,
+      [TENANT],
+    )
+    const ctx = (await cargarContexto(base.db, TENANT, obl.id))!
+    await base.db.query(`UPDATE obligaciones SET estado = 'juridico' WHERE tenant_id = $1`, [
+      TENANT,
+    ])
+
+    const puerto: PuertoAgente = new PuertoPostgres(
+      base.db,
+      TENANT,
+      conversacionId,
+      ctx.deudor,
+      ctx.obligacion,
+      [],
+      null,
+    )
+    await puerto.guardarAcuerdo({
+      id: puerto.nuevoId('acu'),
+      clienteId: TENANT,
+      obligacionId: obl.id,
+      tipo: 'cuotas',
+      montoAcordado: 100_000,
+      descuentoPct: 0,
+      numeroCuotas: 1,
+      primeraCuotaEl: '2026-08-20',
+      estado: 'aprobado',
+      propuestoEn: MARTES.toISOString(),
+      aprobadoPor: null,
+      aprobadoEn: MARTES.toISOString(),
+      motivoRechazo: null,
+    })
+
+    const [despues] = await base.db.query<{ estado: string }>(
+      `SELECT estado FROM obligaciones WHERE tenant_id = $1 AND id = $2`,
+      [TENANT, obl.id],
+    )
+    expect(despues.estado).toBe('juridico')
+  })
 })
