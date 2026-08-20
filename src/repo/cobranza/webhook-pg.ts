@@ -112,7 +112,7 @@ export class RepositorioPostgres implements RepositorioWebhook {
     })
 
     await registrarContacto(this.db, this.tenantId, {
-      obligacionId: obligacionId ?? '',
+      obligacionId,
       deudorId,
       conversacionId,
       canal: 'whatsapp',

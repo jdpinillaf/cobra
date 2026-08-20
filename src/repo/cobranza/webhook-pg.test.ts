@@ -345,4 +345,26 @@ describe('webhook contra Postgres', () => {
     )
     expect(deudor.numero_errado_en).toBeNull()
   })
+
+  it('el deudor que ya pagó todo también puede escribir', async () => {
+    // `obligacionAbierta` devuelve null cuando no queda ninguna sin pagar, y el
+    // entrante se registraba con `obligacionId ?? ''` contra una columna uuid:
+    // "invalid input syntax for type uuid". El mensaje de quien terminó de pagar
+    // —el que suele traer el comprobante o el reclamo— se perdía entero.
+    await base.db.query(`UPDATE obligaciones SET estado = 'pagada' WHERE tenant_id = $1`, [A])
+
+    await procesarLote(unEntrante(TEL_A, 'wamid.PAGADO', 'ya quedé al día, gracias'))
+
+    const bandeja = await listarBandeja(base.db, A, { usuarioId: USUARIO })
+    expect(bandeja).toHaveLength(1)
+    expect(bandeja[0].ultimoMensaje).toBe('ya quedé al día, gracias')
+
+    // El contacto queda sin obligación, no con una inventada: la evidencia de
+    // cumplimiento se cuenta por deudor, no por crédito.
+    const [contacto] = await base.db.query<{ obligacion_id: string | null }>(
+      `SELECT obligacion_id FROM contactos WHERE tenant_id = $1 AND direccion = 'entrante'`,
+      [A],
+    )
+    expect(contacto.obligacion_id).toBeNull()
+  })
 })

@@ -272,7 +272,8 @@ export async function hiloDeConversacion(
 export interface Expediente {
   conversacionId: string
   deudorId: string
-  obligacionId: string
+  /** `null` si el hilo no cuelga de ningún crédito. El JOIN siempre fue LEFT. */
+  obligacionId: string | null
   deudorNombre: string
   telefono: string | null
   documento: string

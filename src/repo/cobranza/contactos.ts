@@ -17,7 +17,15 @@ import type { Db } from '../db'
  */
 
 export interface ContactoNuevo {
-  obligacionId: string
+  /**
+   * Nullable, y no por descuido.
+   *
+   * Un mensaje del deudor que ya terminó de pagar no tiene crédito abierto al
+   * cual colgarse, y perderlo por eso sería perder justo el que trae el
+   * comprobante o el reclamo. La obligación es contexto; la identidad del
+   * contacto son el deudor y el hilo.
+   */
+  obligacionId: string | null
   deudorId: string
   /**
    * Obligatorio al escribir.
