@@ -1,4 +1,5 @@
 import type { Consentimiento } from '@/domain/types'
+import { normalizar } from './texto-entrante'
 
 /**
  * Opt-out del deudor por respuesta.
@@ -45,22 +46,6 @@ const FRASES_BAJA = [
   'revocar autorizacion',
   'no autorizo',
 ]
-
-/**
- * Normaliza para comparar: sin acentos, sin puntuación, en minúsculas.
- *
- * Los deudores escriben desde el celular: "BAJA!!", "no más", "NoMasMensajes".
- * Comparar el texto crudo dejaría pasar casi todas.
- */
-function normalizar(texto: string): string {
-  return texto
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
 
 /**
  * ¿Este mensaje entrante es una revocación?

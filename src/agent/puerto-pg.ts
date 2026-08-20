@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { aCentavos, aPesos } from '@/domain/dinero'
 import type { Acuerdo, Contacto, Deudor, Obligacion, Pago } from '@/domain/types'
 import type { PasoTraza } from '@/demo/estado'
 import { cargarContexto } from '@/repo/cobranza/contexto'
@@ -17,8 +18,6 @@ import type { ConsumoIa, PuertoAgente } from './puerto'
  * turno. Es deliberado: si el saldo pudiera cambiar entre dos herramientas del
  * mismo turno, el agente diría dos cifras distintas en el mismo mensaje.
  */
-
-const aCentavos = (pesos: number): number => Math.round(pesos * 100)
 
 export class PuertoPostgres implements PuertoAgente {
   constructor(
@@ -212,7 +211,7 @@ export async function abrirPuerto(
         clienteId: tenantId,
         obligacionId: params.obligacionId,
         tipo: acuerdo.tipo,
-        montoAcordado: Math.round(Number(acuerdo.monto_acordado_centavos) / 100),
+        montoAcordado: aPesos(acuerdo.monto_acordado_centavos),
         descuentoPct: Number(acuerdo.descuento_pct),
         numeroCuotas: acuerdo.numero_cuotas,
         primeraCuotaEl: String(

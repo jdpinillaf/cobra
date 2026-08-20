@@ -4,6 +4,7 @@ import { crearDeudorConObligacion } from '@/repo/cobranza/cartera'
 import { abrirOReutilizar, pausarAgente } from '@/repo/cobranza/conversaciones'
 import { renovarVentana } from '@/repo/cobranza/ventanas'
 import { crearBaseDePrueba, type BaseDePrueba } from '@/repo/prueba'
+import type { PuertoAgente } from './puerto'
 import { responderEntrante } from './responder'
 
 /**
@@ -240,7 +241,9 @@ describe('responderEntrante', () => {
       [TENANT],
     )
     const ctx = (await cargarContexto(base.db, TENANT, obl.id))!
-    const puerto = new PuertoPostgres(
+    // Tipado como el puerto y no como la implementación: lo que se prueba es el
+    // contrato, que es lo que las herramientas del agente ven.
+    const puerto: PuertoAgente = new PuertoPostgres(
       base.db,
       TENANT,
       conversacionId,

@@ -1,3 +1,5 @@
+import { normalizar } from './texto-entrante'
+
 /**
  * "Este no es mi número."
  *
@@ -55,17 +57,6 @@ const FRASES = [
  * gestión justo del que está diciendo que no le alcanza.
  */
 const NO_SOY = /\bno soy\b(?! capaz)/
-
-/** Misma normalización que `opt-out.ts`: sin acentos, sin puntuación, en minúsculas. */
-function normalizar(texto: string): string {
-  return texto
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
 
 export function detectarNumeroErrado(cuerpo: string): boolean {
   const texto = normalizar(cuerpo)

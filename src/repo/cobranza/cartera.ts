@@ -1,4 +1,5 @@
 import { calcularTramo } from '@/cadence/planificador'
+import { aCentavos, aPesos } from '@/domain/dinero'
 import type { Deudor, EstadoObligacion, Obligacion, TramoMora } from '@/domain/types'
 import type { Db } from '../db'
 
@@ -16,9 +17,6 @@ import type { Db } from '../db'
  * obligación. Si cada corrida insertara de nuevo, a la semana el agente le
  * estaría escribiendo siete veces al mismo deudor.
  */
-
-const aCentavos = (pesos: number): number => Math.round(pesos * 100)
-const aPesos = (centavos: string | number): number => Math.round(Number(centavos) / 100)
 
 export interface CarteraParaGuardar {
   deudores: Deudor[]
