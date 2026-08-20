@@ -69,6 +69,34 @@ export async function abrirOReutilizar(
   return { id: existente.id, nueva: false }
 }
 
+/**
+ * Cierra el hilo.
+ *
+ * Hace falta porque `abrirOReutilizar` devuelve el hilo abierto si ya hay uno:
+ * el índice parcial `conversacion_abierta_por_deudor` permite **uno solo** por
+ * deudor, y esa regla es correcta —dos hilos vivos con la misma persona es cómo
+ * dos asesores se pisan— pero sin forma de cerrar no había forma de empezar uno
+ * nuevo nunca.
+ *
+ * Cerrar no borra: los contactos y las notas siguen colgando del hilo cerrado, y
+ * el historial del deudor los sigue mostrando. Lo único que cambia es que deja
+ * de aparecer en la bandeja y deja de bloquear la apertura del siguiente.
+ */
+export async function cerrarConversacion(
+  db: Db,
+  tenantId: string,
+  conversacionId: string,
+  ahora: string = new Date().toISOString(),
+): Promise<boolean> {
+  const filas = await db.query<{ id: string }>(
+    `UPDATE conversaciones SET cerrada_en = $3
+      WHERE tenant_id = $1 AND id = $2 AND cerrada_en IS NULL
+      RETURNING id`,
+    [tenantId, conversacionId, ahora],
+  )
+  return filas.length > 0
+}
+
 export async function pausarAgente(
   db: Db,
   tenantId: string,

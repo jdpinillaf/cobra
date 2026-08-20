@@ -54,7 +54,7 @@ export default async function LayoutConversaciones({
           )}
         </div>
 
-        <nav className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        <nav className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
           {FILTROS.map((f) => (
             <Link
               key={f.clave}
@@ -64,6 +64,12 @@ export default async function LayoutConversaciones({
               {f.label}
             </Link>
           ))}
+          <Link
+            href="/consola/conversaciones/nueva"
+            className="ml-auto text-ink-soft hover:text-ink"
+          >
+            + Nueva
+          </Link>
         </nav>
 
         <ul className="mt-4">

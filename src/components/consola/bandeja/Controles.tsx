@@ -66,6 +66,15 @@ export function Controles({
   modoDemo: boolean
 }) {
   const [pendiente, empezar] = useTransition()
+  /**
+   * Cuál de los botones está corriendo.
+   *
+   * `useTransition` da un solo `pendiente` para todos, así que al simular un
+   * entrante el botón de enviar decía "Enviando…" — o sea, afirmaba que le
+   * estaba saliendo un mensaje al deudor cuando no salía ninguno. En una
+   * pantalla que gasta plata del cliente, eso no es un detalle de estilo.
+   */
+  const [enCurso, setEnCurso] = useState<'enviar' | 'recibir' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [texto, setTexto] = useState('')
   const [nota, setNota] = useState('')
@@ -76,11 +85,16 @@ export function Controles({
   const abierta = ventanaExpiraEn !== null && new Date(ventanaExpiraEn).getTime() > Date.now()
   const elegida = plantillas.find((p) => p.id === plantillaId) ?? null
 
-  const correr = (fn: () => Promise<{ ok: boolean; error?: string }>) => {
+  const correr = (
+    fn: () => Promise<{ ok: boolean; error?: string }>,
+    cual: 'enviar' | 'recibir' | null = null,
+  ) => {
     setError(null)
+    setEnCurso(cual)
     empezar(async () => {
       const r = await fn()
       if (!r.ok) setError(r.error ?? 'No se pudo.')
+      setEnCurso(null)
     })
   }
 
@@ -145,11 +159,11 @@ export function Controles({
                   const r = await accionEnviar(conversacionId, { texto })
                   if (r.ok) setTexto('')
                   return r
-                })
+                }, 'enviar')
               }
               className={PRIMARIO}
             >
-              {pendiente ? 'Enviando…' : 'Enviar'}
+              {enCurso === 'enviar' ? 'Enviando…' : 'Enviar'}
             </button>
             <span className="text-[13px] text-ink-faint">Responder a mano pausa el agente.</span>
           </div>
@@ -217,11 +231,11 @@ export function Controles({
                           setVariables([])
                         }
                         return r
-                      })
+                      }, 'enviar')
                     }
                     className={`mt-3 ${PRIMARIO}`}
                   >
-                    {pendiente ? 'Enviando…' : 'Enviar plantilla'}
+                    {enCurso === 'enviar' ? 'Enviando…' : 'Enviar plantilla'}
                   </button>
                 </>
               )}
@@ -247,17 +261,18 @@ export function Controles({
           />
           <button
             type="button"
+            name="recibir"
             disabled={pendiente || comoDeudor.trim() === ''}
             onClick={() =>
               correr(async () => {
                 const r = await accionSimularEntrante(conversacionId, comoDeudor)
                 if (r.ok) setComoDeudor('')
                 return r
-              })
+              }, 'recibir')
             }
             className={`mt-2 text-sm ${BOTON}`}
           >
-            Recibir como deudor
+            {enCurso === 'recibir' ? 'Recibiendo…' : 'Recibir como deudor'}
           </button>
         </div>
       )}
