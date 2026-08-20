@@ -179,7 +179,11 @@ export class RepositorioEnMemoria implements RepositorioWebhook {
   }
   async registrarEntrante(mensaje: MensajeEntrante): Promise<{ conversacionId: string } | null> {
     this.entrantes.push(mensaje)
-    return null
+    // Un hilo por teléfono, igual que en la base: el índice parcial permite una
+    // sola conversación abierta por deudor. Devolver `null` siempre dejaba
+    // inerte la única rama nueva del flujo —la que decide a quién responder— y
+    // obligaba a los tests a pisar el método para poder ejercitarla.
+    return { conversacionId: `hilo:${mensaje.deTelefono}` }
   }
   async abrirVentanaServicio(telefono: string, entranteEn: string): Promise<void> {
     this.ventanas.set(telefono, entranteEn)

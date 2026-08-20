@@ -135,7 +135,6 @@ describe('una ráfaga del deudor es un solo turno', () => {
     // de su deuda a un teléfono que no escribió — en cartera importada, casi
     // siempre un familiar o una referencia.
     const repo = new RepositorioEnMemoria()
-    repo.registrarEntrante = async () => ({ conversacionId: 'hilo-unico' })
 
     const resumen = await procesarWebhook(
       payload({ entrantes: [{ id: 'wamid.30', from: '573004445566', body: 'hola' }] }),
@@ -155,8 +154,6 @@ describe('una ráfaga del deudor es un solo turno', () => {
     // turnos de modelo cobrados, y la posibilidad de dos acuerdos o dos links
     // de pago para la misma obligación.
     const repo = new RepositorioEnMemoria()
-    // El repo en memoria no resuelve hilos; se fuerza el mismo id para el caso.
-    repo.registrarEntrante = async () => ({ conversacionId: 'hilo-unico' })
 
     const resumen = await procesarWebhook(
       payload({
@@ -172,17 +169,12 @@ describe('una ráfaga del deudor es un solo turno', () => {
     expect(resumen.entrantesRegistrados).toBe(2)
     // Pero se responde una sola vez, con los dos mensajes ya en el contexto.
     expect(resumen.aResponder).toEqual([
-      { conversacionId: 'hilo-unico', telefono: '+573009998877' },
+      { conversacionId: 'hilo:+573009998877', telefono: '+573009998877' },
     ])
   })
 
   it('dos deudores distintos en el mismo lote sí son dos turnos', async () => {
     const repo = new RepositorioEnMemoria()
-    const porTelefono: Record<string, string> = {
-      '+573009998877': 'hilo-a',
-      '+573001112233': 'hilo-b',
-    }
-    repo.registrarEntrante = async (m) => ({ conversacionId: porTelefono[m.deTelefono] })
 
     const resumen = await procesarWebhook(
       payload({
@@ -195,8 +187,8 @@ describe('una ráfaga del deudor es un solo turno', () => {
     )
 
     expect(resumen.aResponder).toEqual([
-      { conversacionId: 'hilo-a', telefono: '+573009998877' },
-      { conversacionId: 'hilo-b', telefono: '+573001112233' },
+      { conversacionId: 'hilo:+573009998877', telefono: '+573009998877' },
+      { conversacionId: 'hilo:+573001112233', telefono: '+573001112233' },
     ])
   })
 })

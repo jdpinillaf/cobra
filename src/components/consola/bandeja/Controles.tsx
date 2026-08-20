@@ -92,9 +92,17 @@ export function Controles({
     setError(null)
     setEnCurso(cual)
     empezar(async () => {
-      const r = await fn()
-      if (!r.ok) setError(r.error ?? 'No se pudo.')
-      setEnCurso(null)
+      // `finally`, no la última línea del bloque. Si la acción lanza —una caída
+      // de red basta— `setEnCurso(null)` no corría y los botones quedaban
+      // trabados hasta recargar. `pendiente` se recupera solo; esto no.
+      try {
+        const r = await fn()
+        if (!r.ok) setError(r.error ?? 'No se pudo.')
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'No se pudo.')
+      } finally {
+        setEnCurso(null)
+      }
     })
   }
 

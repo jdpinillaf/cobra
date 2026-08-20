@@ -105,28 +105,27 @@ export async function sembrarHilos(
       resumen.etiquetas += 1
     }
 
+    const ultimoEntrante = hilo.mensajes.findLast((m) => m.direccion === 'entrante')
+
     // Lo que el arco dejó escrito sobre el **deudor**, no sobre el hilo.
     //
     // Sin esto el seed producía un estado imposible: un deudor que pidió la
     // baja en el mensaje que se ve en pantalla y que la cartera sigue dando por
     // contactable. La consola lo mostraba con el botón de enviar habilitado.
-    if (hilo.marca === 'numero-errado') {
-      const aviso = [...hilo.mensajes].reverse().find((m) => m.direccion === 'entrante')
+    //
+    // Las dos columnas se escriben igual —el `IS NULL` conserva la fecha del
+    // primer aviso, que es la que vale como evidencia— y lo único que cambia es
+    // cuál. Dos UPDATE copiados era una copia que algún día pierde el `IS NULL`.
+    //
+    // El nombre de la columna se interpola, y es seguro: sale de un ternario
+    // sobre una unión cerrada de dos literales, no de un dato. Los valores van
+    // parametrizados como siempre.
+    if (hilo.marca) {
+      const columna = hilo.marca === 'opt-out' ? 'revocado_en' : 'numero_errado_en'
       await db.query(
-        `UPDATE deudores SET numero_errado_en = $3
-          WHERE tenant_id = $1 AND id = $2 AND numero_errado_en IS NULL`,
-        [tenantId, hilo.deudorId, aviso?.ocurridoEn ?? opciones.ahora],
-      )
-    }
-
-    if (hilo.marca === 'opt-out') {
-      const ultimoEntranteDelDeudor = [...hilo.mensajes]
-        .reverse()
-        .find((m) => m.direccion === 'entrante')
-      await db.query(
-        `UPDATE deudores SET revocado_en = $3
-          WHERE tenant_id = $1 AND id = $2 AND revocado_en IS NULL`,
-        [tenantId, hilo.deudorId, ultimoEntranteDelDeudor?.ocurridoEn ?? opciones.ahora],
+        `UPDATE deudores SET ${columna} = $3
+          WHERE tenant_id = $1 AND id = $2 AND ${columna} IS NULL`,
+        [tenantId, hilo.deudorId, ultimoEntrante?.ocurridoEn ?? opciones.ahora],
       )
     }
 
@@ -144,7 +143,6 @@ export async function sembrarHilos(
     // producción. Así el seed produce hilos con ventana abierta y hilos con
     // ventana vencida, que son los dos estados que el redactor tiene que saber
     // dibujar. Sembrar solo ventanas abiertas escondería la mitad de la UI.
-    const ultimoEntrante = [...hilo.mensajes].reverse().find((m) => m.direccion === 'entrante')
     if (ultimoEntrante) {
       await renovarVentana(db, tenantId, hilo.deudorId, ultimoEntrante.ocurridoEn)
     }

@@ -162,10 +162,15 @@ describe('generarHilos', () => {
     expect(cerrados.length).toBeGreaterThan(0)
 
     for (const hilo of cerrados) {
-      const guion = GUIONES.find((g) => g.id === hilo.guion)
-      expect(guion?.cierra).toBe(true)
-      // El último turno del guion es el último mensaje del hilo.
-      expect(hilo.mensajes.at(-1)?.direccion).toBe('saliente')
+      const guion = GUIONES.find((g) => g.id === hilo.guion)!
+      // El último turno del arco es el último mensaje del hilo: lo que sigue al
+      // cierre no existe. Antes esto se afirmaba mirando una bandera `cierra`
+      // que el generador nunca leía — o sea que el test comprobaba que el
+      // catálogo se declaraba bien, no que el hilo terminara donde debía.
+      const ultimoTurno = guion.turnos.at(-1)!
+      expect(hilo.mensajes.at(-1)?.direccion).toBe(
+        ultimoTurno.de === 'deudor' ? 'entrante' : 'saliente',
+      )
     }
   })
 

@@ -155,11 +155,7 @@ function dominioDePagos(urlBase: string): string {
 }
 
 export function crearHerramientas(ctx: ContextoHerramientas) {
-  const { puerto, limites, fechaHoy, urlBase } = ctx
-  void limites
-  void fechaHoy
-  void urlBase
-
+  const { puerto } = ctx
   const { obligacion, deudor } = puerto
 
   const paso = (herramienta: string, detalle: string, estadoPaso: 'ok' | 'bloqueado' = 'ok') =>

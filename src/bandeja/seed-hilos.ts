@@ -73,8 +73,6 @@ export interface Guion {
   turnos: Turno[]
   etiqueta: string | null
   nota: string | null
-  /** El hilo termina acá. No se escribe nada después, ni siquiera cadencia. */
-  cierra: boolean
   /** Un humano se hizo cargo. */
   pausa: boolean
   /** Lo que este arco dejó escrito sobre el deudor, no sobre el hilo. */
@@ -111,7 +109,6 @@ export const GUIONES: Guion[] = [
     turnos: [{ de: 'deudor', texto: () => 'quien habla?' }],
     etiqueta: null,
     nota: null,
-    cierra: false,
     pausa: false,
     marca: null,
   },
@@ -129,7 +126,6 @@ export const GUIONES: Guion[] = [
     ],
     etiqueta: 'promesa de pago',
     nota: 'Lo llamé, dice que paga el viernes. Confirmar.',
-    cierra: false,
     pausa: false,
     marca: null,
   },
@@ -152,7 +148,6 @@ export const GUIONES: Guion[] = [
     ],
     etiqueta: 'promesa de pago',
     nota: null,
-    cierra: false,
     pausa: false,
     marca: null,
   },
@@ -168,7 +163,6 @@ export const GUIONES: Guion[] = [
     ],
     etiqueta: 'en disputa',
     nota: 'Dice que le llegó doble cobro. Revisar con contabilidad antes de insistir.',
-    cierra: true,
     pausa: true,
     marca: null,
   },
@@ -184,7 +178,6 @@ export const GUIONES: Guion[] = [
     ],
     etiqueta: 'número errado',
     nota: 'Número contestado por la esposa. No es el titular.',
-    cierra: true,
     pausa: true,
     marca: 'numero-errado',
   },
@@ -199,7 +192,6 @@ export const GUIONES: Guion[] = [
     // de una prohibición legal.
     etiqueta: null,
     nota: null,
-    cierra: true,
     pausa: false,
     marca: 'opt-out',
   },
@@ -217,7 +209,6 @@ export const GUIONES: Guion[] = [
     ],
     etiqueta: null,
     nota: 'Cliente de años, tratarlo con cuidado. Habló el gerente.',
-    cierra: false,
     pausa: false,
     marca: null,
   },
@@ -240,7 +231,6 @@ export const GUIONES: Guion[] = [
     ],
     etiqueta: 'no contesta',
     nota: null,
-    cierra: false,
     pausa: false,
     marca: null,
   },
@@ -470,8 +460,8 @@ export function generarHilos(opciones: OpcionesHilos): HiloSeed[] {
         // Un intento puede repetirse a lo largo de meses —la cadencia manda la
         // misma plantilla— pero no dos veces pegadas: eso se lee como un bug de
         // reintentos, no como gestión.
-        const opciones = INTENTOS.filter((f) => f(ctx) !== ultimoTexto)
-        const texto = elegir(opciones.length > 0 ? opciones : INTENTOS)
+        const frescos = INTENTOS.filter((f) => f(ctx) !== ultimoTexto)
+        const texto = elegir(frescos.length > 0 ? frescos : INTENTOS)
         turnos.push({ de: 'agente', texto, intento: true })
         ultimoTexto = texto(ctx)
       }
@@ -513,11 +503,13 @@ export function generarHilos(opciones: OpcionesHilos): HiloSeed[] {
     // que la Ley 2300 permite; dentro de una conversación viva los turnos se
     // separan en minutos. Esa diferencia es lo que hace que unos hilos tengan la
     // ventana de 24 h abierta y otros no.
+    // Un hueco por cada par de turnos consecutivos: el de `turnos[k]` al
+    // `turnos[k+1]`, y lo decide el turno de la izquierda —si fue un intento de
+    // cadencia se separa en días, si fue parte de una conversación viva, en
+    // minutos—. Por eso se recorre sin el último y no sin el primero.
     const huecos = turnos
-      .slice(1)
-      .map((t, k) =>
-        turnos[k].intento ? (3 + Math.floor(rnd() * 7)) * DIA : (7 + Math.floor(rnd() * 90)) * MINUTO,
-      )
+      .slice(0, -1)
+      .map((t) => (t.intento ? (3 + Math.floor(rnd() * 7)) * DIA : (7 + Math.floor(rnd() * 90)) * MINUTO))
 
     // Uno de cada ocho intentos de cadencia fue bloqueado por la ley. Son parte
     // del hilo y son la evidencia; esconderlos haría parecer que nunca se
@@ -591,7 +583,10 @@ export function generarHilos(opciones: OpcionesHilos): HiloSeed[] {
     const deTurno = opciones.usuarios.length > 0
       ? opciones.usuarios[i % opciones.usuarios.length]
       : null
-    const asignadaA = guion.pausa ? deTurno : i % 4 === 3 ? null : deTurno
+    // Un caso que un humano tomó siempre tiene dueño; del resto, uno de cada
+    // cuatro queda sin asignar, que es la cola que la bandeja tiene que mostrar.
+    const sinDueno = !guion.pausa && i % 4 === 3
+    const asignadaA = sinDueno ? null : deTurno
 
     return {
       deudorId: o.deudorId,
@@ -608,9 +603,7 @@ export function generarHilos(opciones: OpcionesHilos): HiloSeed[] {
               // fechada después del último mensaje que comenta.
               cuerpo: guion.nota,
               usuarioId: asignadaA ?? opciones.usuarios[0],
-              ocurridoEn: new Date(
-                new Date(mensajes.at(-1)?.ocurridoEn ?? finEn).getTime() - 3 * MINUTO,
-              ).toISOString(),
+              ocurridoEn: new Date(instantes.at(-1)! - 3 * MINUTO).toISOString(),
             },
           ]
         : [],

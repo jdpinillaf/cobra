@@ -1,4 +1,5 @@
 import { calcularTramo } from '@/cadence/planificador'
+import { sumarDias } from '@/compliance/reloj-bogota'
 import { aCentavos, aPesos } from '@/domain/dinero'
 import type { Deudor, EstadoObligacion, Obligacion, TramoMora } from '@/domain/types'
 import type { Db } from '../db'
@@ -247,7 +248,7 @@ export async function crearDeudorConObligacion(
         capital: datos.saldoTotal,
         interesMora: 0,
         saldoTotal: datos.saldoTotal,
-        fechaVencimiento: restarDias(hoy, Math.max(0, datos.diasMora)),
+        fechaVencimiento: sumarDias(hoy, -Math.max(0, datos.diasMora)),
         diasMora: datos.diasMora,
         tramo,
         estado: datos.diasMora > 0 ? 'en_mora' : 'al_dia',
@@ -263,11 +264,4 @@ export async function crearDeudorConObligacion(
     [tenantId, datos.numeroCredito],
   )
   return { deudorId: fila.deudor_id, obligacionId: fila.obligacion_id }
-}
-
-/** `YYYY-MM-DD` menos N días, sin tocar zona horaria. */
-function restarDias(fecha: string, dias: number): string {
-  const d = new Date(`${fecha}T12:00:00Z`)
-  d.setUTCDate(d.getUTCDate() - dias)
-  return d.toISOString().slice(0, 10)
 }

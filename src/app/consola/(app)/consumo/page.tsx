@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { requerirSesion } from '@/auth/actual'
 import { Celda, Encabezado, Estado, Tabla } from '@/components/consola/Tabla'
-import { cop, numero, pct } from '@/lib/formato'
+import { cop, numero, pct, puntos } from '@/lib/formato'
 import {
   bordesDelMes,
   consumoIaDelPeriodo,
@@ -44,6 +44,22 @@ const MESES = [
   'noviembre',
   'diciembre',
 ]
+
+/**
+ * Una cifra con su rótulo.
+ *
+ * Las tiras de métricas de esta pantalla repetían el mismo par de clases diez
+ * veces. Una sola pieza también garantiza que las cuatro tiras se vean iguales
+ * cuando alguien agregue la quinta.
+ */
+function Metrica({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <dt className="text-marca uppercase tracking-[0.14em] text-ink-faint">{titulo}</dt>
+      <dd className="mt-1 text-lead tabular-nums">{children}</dd>
+    </div>
+  )
+}
 
 const TONO_CATEGORIA: Record<string, 'entregado' | 'diferido' | 'bloqueado' | 'neutro'> = {
   servicio: 'entregado',
@@ -107,28 +123,11 @@ export default async function PaginaConsumo({
       </div>
 
       <dl className="mt-6 flex flex-wrap gap-x-10 gap-y-4 border-y border-rule py-4">
-        <div>
-          <dt className="text-marca uppercase tracking-[0.14em] text-ink-faint">Costo del canal</dt>
-          <dd className="mt-1 text-lead tabular-nums">{cop(Math.round(resumen.costoCop))}</dd>
-        </div>
-        <div>
-          <dt className="text-marca uppercase tracking-[0.14em] text-ink-faint">Conversaciones</dt>
-          <dd className="mt-1 text-lead tabular-nums">{numero(resumen.conversaciones)}</dd>
-        </div>
-        <div>
-          <dt className="text-marca uppercase tracking-[0.14em] text-ink-faint">Mensajes</dt>
-          <dd className="mt-1 text-lead tabular-nums">{numero(resumen.mensajesQueCuentan)}</dd>
-        </div>
-        <div>
-          <dt className="text-marca uppercase tracking-[0.14em] text-ink-faint">
-            Bloqueados por ley
-          </dt>
-          <dd className="mt-1 text-lead tabular-nums">{numero(resumen.bloqueados)}</dd>
-        </div>
-        <div>
-          <dt className="text-marca uppercase tracking-[0.14em] text-ink-faint">Turnos de IA</dt>
-          <dd className="mt-1 text-lead tabular-nums">{numero(ia.turnos)}</dd>
-        </div>
+        <Metrica titulo="Costo del canal">{cop(resumen.costoCop)}</Metrica>
+        <Metrica titulo="Conversaciones">{numero(resumen.conversaciones)}</Metrica>
+        <Metrica titulo="Mensajes">{numero(resumen.mensajesQueCuentan)}</Metrica>
+        <Metrica titulo="Bloqueados por ley">{numero(resumen.bloqueados)}</Metrica>
+        <Metrica titulo="Turnos de IA">{numero(ia.turnos)}</Metrica>
       </dl>
 
       <p className="mt-4 max-w-prose text-sm text-ink-faint">
@@ -164,11 +163,11 @@ export default async function PaginaConsumo({
                       <Estado tono={TONO_CATEGORIA[c.categoria] ?? 'neutro'}>{c.categoria}</Estado>
                     </Celda>
                     <Celda num>{numero(c.mensajes)}</Celda>
-                    <Celda num>{cop(Math.round(c.costoCop))}</Celda>
+                    <Celda num>{cop(c.costoCop)}</Celda>
                     <Celda num>
                       {c.costoCop === 0
                         ? 'gratis'
-                        : `$ ${(c.costoCop / c.mensajes).toFixed(1).replace('.', ',')}`}
+                        : `$ ${puntos(c.costoCop / c.mensajes)}`}
                     </Celda>
                   </tr>
                 ))}
@@ -215,32 +214,20 @@ export default async function PaginaConsumo({
       <section className="mt-8">
         <p className="marca-seccion">Lo que cuesta pensar</p>
         <dl className="mt-3 flex flex-wrap gap-x-10 gap-y-4 border-y border-rule py-4">
-          <div>
-            <dt className="text-marca uppercase tracking-[0.14em] text-ink-faint">
-              Turnos por conversación
-            </dt>
-            <dd className="mt-1 text-lead tabular-nums">
-              {ia.conversaciones > 0 ? (ia.turnos / ia.conversaciones).toFixed(1).replace('.', ',') : '—'}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-marca uppercase tracking-[0.14em] text-ink-faint">Tokens de entrada</dt>
-            <dd className="mt-1 text-lead tabular-nums">{numero(ia.tokensEntrada)}</dd>
-          </div>
-          <div>
-            <dt className="text-marca uppercase tracking-[0.14em] text-ink-faint">Tokens de salida</dt>
-            <dd className="mt-1 text-lead tabular-nums">{numero(ia.tokensSalida)}</dd>
-          </div>
-          <div>
-            <dt className="text-marca uppercase tracking-[0.14em] text-ink-faint">
-              Latencia mediana
-            </dt>
-            <dd className="mt-1 text-lead tabular-nums">
-              {ia.latenciaMedianaMs === null
+          <Metrica titulo="Turnos por conversación">
+            {ia.conversaciones > 0 ? puntos(ia.turnos / ia.conversaciones) : '—'}
+          </Metrica>
+          <Metrica titulo="Tokens de entrada">
+            {numero(ia.tokensEntrada)}
+          </Metrica>
+          <Metrica titulo="Tokens de salida">
+            {numero(ia.tokensSalida)}
+          </Metrica>
+          <Metrica titulo="Latencia mediana">
+            {ia.latenciaMedianaMs === null
                 ? '—'
-                : `${(ia.latenciaMedianaMs / 1000).toFixed(1).replace('.', ',')} s`}
-            </dd>
-          </div>
+                : `${puntos(ia.latenciaMedianaMs / 1000)} s`}
+          </Metrica>
         </dl>
         <p className="mt-3 max-w-prose text-sm text-ink-faint">
           {ia.turnos === 0

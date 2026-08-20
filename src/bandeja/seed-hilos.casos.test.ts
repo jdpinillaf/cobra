@@ -504,10 +504,14 @@ describe('casos QA · el guion es lo último que pasa en el hilo', () => {
     })
   }
 
-  it('caso 5.a · un guion que cierra no tiene nada escrito después', () => {
+  it('caso 5.a · el arco es siempre el final del hilo', () => {
+    // Antes este caso filtraba por una bandera `cierra` del catálogo que el
+    // generador nunca leía. El invariante que importa no necesita bandera: el
+    // preludio de cadencia va adelante y el arco va al final, siempre. Es lo
+    // que garantiza que después de "le ofrezco disculpas por la molestia" no
+    // haya tres mensajes más negociando cuotas.
     for (const h of hilos) {
       const guion = GUIONES.find((g) => g.id === h.guion)!
-      if (!guion.cierra) continue
       const ctx = contextoDe(porId.get(h.obligacionId)!, op.empresa)
       const ultimo = h.mensajes.at(-1)!
       const cierre = guion.turnos.at(-1)!
