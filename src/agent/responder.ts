@@ -93,11 +93,11 @@ export async function responderEntrante(
     return { respondio: false, razon: 'pausa', detalle: compuerta.detalle }
   }
 
-  const [hilo, limites, cliente] = await Promise.all([
+  const [hilo, config] = await Promise.all([
     hiloDeConversacion(db, params.tenantId, params.conversacionId),
-    limitesDelTenant(db, params.tenantId, puerto.obligacion.tramo),
-    nombreDelTenant(db, params.tenantId),
+    configDelCliente(db, params.tenantId, puerto.obligacion.tramo),
   ])
+  const { limites, cliente } = config
 
   // Las notas internas no entran: el deudor no las ve y meterlas en el contexto
   // le enseñaría al modelo cosas que el equipo escribió para sí mismo.
@@ -155,27 +155,35 @@ export async function responderEntrante(
 }
 
 /**
- * Lo que el cliente autorizó para ese tramo.
+ * Quién cobra y qué tiene autorizado ofrecer, en una consulta.
  *
- * `tenant_cobranza.limites_por_tramo` nace vacío, y vacío significa **no se
- * negocia nada**: sin descuento, una sola cuota, sin plazo. Un default
- * permisivo dejaría al agente ofreciendo condiciones que nadie firmó.
+ * Eran dos: el nombre sale de `tenants` y los límites de `tenant_cobranza`, que
+ * es una fila aparte porque un cliente puede conciliar sin cobrar. Pero las dos
+ * hacen falta en el mismo instante y ninguna depende de la otra, así que un
+ * `LEFT JOIN` las trae juntas y ahorra un viaje dentro del turno del agente.
+ *
+ * `limites_por_tramo` nace vacío, y vacío significa **no se negocia nada**: sin
+ * descuento, una sola cuota, sin plazo. Un default permisivo dejaría al agente
+ * ofreciendo condiciones que nadie firmó.
  */
-async function limitesDelTenant(
+async function configDelCliente(
   db: Db,
   tenantId: string,
   tramo: string,
-): Promise<LimitesNegociacion> {
-  const [fila] = await db.query<{ limites_por_tramo: Record<string, LimitesNegociacion> }>(
-    `SELECT limites_por_tramo FROM tenant_cobranza WHERE tenant_id = $1`,
+): Promise<{ limites: LimitesNegociacion; cliente: { nombre: string } }> {
+  const [fila] = await db.query<{
+    nombre: string
+    limites_por_tramo: Record<string, LimitesNegociacion> | null
+  }>(
+    `SELECT t.nombre, c.limites_por_tramo
+       FROM tenants t
+       LEFT JOIN tenant_cobranza c ON c.tenant_id = t.id
+      WHERE t.id = $1`,
     [tenantId],
   )
-  return limitesDelTramo(fila?.limites_por_tramo ?? {}, tramo)
-}
 
-async function nombreDelTenant(db: Db, tenantId: string): Promise<{ nombre: string }> {
-  const [fila] = await db.query<{ nombre: string }>(`SELECT nombre FROM tenants WHERE id = $1`, [
-    tenantId,
-  ])
-  return { nombre: fila?.nombre ?? 'la empresa' }
+  return {
+    limites: limitesDelTramo(fila?.limites_por_tramo ?? {}, tramo),
+    cliente: { nombre: fila?.nombre ?? 'la empresa' },
+  }
 }

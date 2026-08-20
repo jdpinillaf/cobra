@@ -214,12 +214,32 @@ export class RepositorioPostgres implements RepositorioWebhook {
     )
   }
 
+  /**
+   * De quién es este número, resuelto una sola vez por entrega.
+   *
+   * Un entrante lo consultaba hasta cuatro veces: al registrar el contacto, al
+   * abrir la ventana de 24 h, al revocar el consentimiento y al marcar el
+   * número errado. Y Meta entrega los mensajes **en lote**, así que eso se
+   * multiplica por cada mensaje del lote, dentro de la transacción del webhook,
+   * con una conexión reservada.
+   *
+   * El caché vive en la instancia, que dura lo que la entrega. El deudor de un
+   * teléfono no cambia en ese rato, y si cambiara, cambiarlo a mitad de un lote
+   * sería peor que no verlo.
+   */
+  private readonly deudorPorNumero = new Map<string, string | null>()
+
   private async deudorPorTelefono(telefono: string): Promise<string | null> {
+    const cacheado = this.deudorPorNumero.get(telefono)
+    if (cacheado !== undefined) return cacheado
+
     const filas = await this.db.query<{ id: string }>(
       `SELECT id FROM deudores WHERE tenant_id = $1 AND telefonos @> ARRAY[$2::text] LIMIT 1`,
       [this.tenantId, telefono],
     )
-    return filas[0]?.id ?? null
+    const id = filas[0]?.id ?? null
+    this.deudorPorNumero.set(telefono, id)
+    return id
   }
 
   private async obligacionAbierta(deudorId: string): Promise<string | null> {

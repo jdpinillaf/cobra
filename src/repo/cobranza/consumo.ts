@@ -93,41 +93,46 @@ export async function resumenDelPeriodo(
   tenantId: string,
   periodo: Periodo,
 ): Promise<ResumenConsumo> {
-  const [totales] = await db.query<{
-    costo: string | null
-    cuentan: string
-    bloqueados: string
-    conversaciones: string
-  }>(
-    `SELECT COALESCE(SUM(costo_cop), 0)                                   AS costo,
-            COUNT(*) FILTER (WHERE resultado <> 'bloqueado')              AS cuentan,
-            COUNT(*) FILTER (WHERE resultado =  'bloqueado')              AS bloqueados,
-            COUNT(DISTINCT conversacion_id)                               AS conversaciones
-       FROM contactos
-      WHERE tenant_id = $1 AND ocurrido_en >= $2 AND ocurrido_en < $3
-        AND proveedor IS DISTINCT FROM 'simulado'`,
-    [tenantId, periodo.desde, periodo.hasta],
-  )
+  // Las tres consultas son independientes y ninguna alimenta a la siguiente.
+  // En serie eran tres viajes para pintar una sola pantalla.
+  const [filasTotales, porCategoria, porCanal] = await Promise.all([
+    db.query<{
+      costo: string | null
+      cuentan: string
+      bloqueados: string
+      conversaciones: string
+    }>(
+      `SELECT COALESCE(SUM(costo_cop), 0)                                   AS costo,
+              COUNT(*) FILTER (WHERE resultado <> 'bloqueado')              AS cuentan,
+              COUNT(*) FILTER (WHERE resultado =  'bloqueado')              AS bloqueados,
+              COUNT(DISTINCT conversacion_id)                               AS conversaciones
+         FROM contactos
+        WHERE tenant_id = $1 AND ocurrido_en >= $2 AND ocurrido_en < $3
+          AND proveedor IS DISTINCT FROM 'simulado'`,
+      [tenantId, periodo.desde, periodo.hasta],
+    ),
 
-  const porCategoria = await db.query<{ categoria: CategoriaFacturable; n: string; costo: string }>(
-    `SELECT categoria, COUNT(*) AS n, COALESCE(SUM(costo_cop), 0) AS costo
-       FROM contactos
-      WHERE tenant_id = $1 AND ocurrido_en >= $2 AND ocurrido_en < $3
-        AND categoria IS NOT NULL AND proveedor IS DISTINCT FROM 'simulado'
-      GROUP BY categoria
-      ORDER BY costo DESC`,
-    [tenantId, periodo.desde, periodo.hasta],
-  )
+    db.query<{ categoria: CategoriaFacturable; n: string; costo: string }>(
+      `SELECT categoria, COUNT(*) AS n, COALESCE(SUM(costo_cop), 0) AS costo
+         FROM contactos
+        WHERE tenant_id = $1 AND ocurrido_en >= $2 AND ocurrido_en < $3
+          AND categoria IS NOT NULL AND proveedor IS DISTINCT FROM 'simulado'
+        GROUP BY categoria
+        ORDER BY costo DESC`,
+      [tenantId, periodo.desde, periodo.hasta],
+    ),
 
-  const porCanal = await db.query<{ canal: Canal; n: string; costo: string }>(
-    `SELECT canal, COUNT(*) AS n, COALESCE(SUM(costo_cop), 0) AS costo
-       FROM contactos
-      WHERE tenant_id = $1 AND ocurrido_en >= $2 AND ocurrido_en < $3
-        AND resultado <> 'bloqueado' AND proveedor IS DISTINCT FROM 'simulado'
-      GROUP BY canal
-      ORDER BY costo DESC`,
-    [tenantId, periodo.desde, periodo.hasta],
-  )
+    db.query<{ canal: Canal; n: string; costo: string }>(
+      `SELECT canal, COUNT(*) AS n, COALESCE(SUM(costo_cop), 0) AS costo
+         FROM contactos
+        WHERE tenant_id = $1 AND ocurrido_en >= $2 AND ocurrido_en < $3
+          AND resultado <> 'bloqueado' AND proveedor IS DISTINCT FROM 'simulado'
+        GROUP BY canal
+        ORDER BY costo DESC`,
+      [tenantId, periodo.desde, periodo.hasta],
+    ),
+  ])
+  const totales = filasTotales[0]
 
   return {
     costoCop: num(totales.costo),
