@@ -44,14 +44,17 @@ const EQUIPO = [
 const cantidad = Number(process.argv[2] ?? 40)
 const fechaCorte = new Date().toISOString().slice(0, 10)
 
+/** Quién cobra. Va en el tenant y en la apertura de cada hilo sembrado. */
+const EMPRESA = 'Ferretería El Tornillo S.A.S.'
+
 const db = await obtenerDb()
 
 await db.query(
   `INSERT INTO tenants (id, nombre, nit, cuenta_ultimos4, cuenta_titular, capacidades, estado)
-   VALUES ($1, 'Ferretería El Tornillo S.A.S.', '901234567-1', '4129',
+   VALUES ($1, $2, '901234567-1', '4129',
            'FERRETERIA EL TORNILLO SAS', ARRAY['cobranza'], 'activo')
    ON CONFLICT (id) DO NOTHING`,
-  [TENANT_DEV],
+  [TENANT_DEV, EMPRESA],
 )
 await db.query(
   `INSERT INTO tenant_cobranza (tenant_id, tier, cupo_mensajes_mes)
@@ -159,9 +162,12 @@ const hilos = await sembrarHilos(db, TENANT_DEV, {
     id: o.id,
     deudorId: o.deudorId,
     deudorNombre: o.deudorNombre,
+    numeroCredito: o.numeroCredito,
+    saldoTotal: o.saldoTotal,
     diasMora: o.diasMora,
   })),
   usuarios: EQUIPO.map((u) => u.id),
+  empresa: EMPRESA,
   ahora: new Date().toISOString(),
   semilla: 7,
 })

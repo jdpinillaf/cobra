@@ -101,6 +101,22 @@ export async function sembrarHilos(
       resumen.etiquetas += 1
     }
 
+    // Lo que el arco dejó escrito sobre el **deudor**, no sobre el hilo.
+    //
+    // Sin esto el seed producía un estado imposible: un deudor que pidió la
+    // baja en el mensaje que se ve en pantalla y que la cartera sigue dando por
+    // contactable. La consola lo mostraba con el botón de enviar habilitado.
+    if (hilo.marca === 'opt-out') {
+      const ultimoEntranteDelDeudor = [...hilo.mensajes]
+        .reverse()
+        .find((m) => m.direccion === 'entrante')
+      await db.query(
+        `UPDATE deudores SET revocado_en = $3
+          WHERE tenant_id = $1 AND id = $2 AND revocado_en IS NULL`,
+        [tenantId, hilo.deudorId, ultimoEntranteDelDeudor?.ocurridoEn ?? opciones.ahora],
+      )
+    }
+
     if (hilo.agentePausado) {
       await pausarAgente(db, tenantId, conversacionId, {
         usuarioId: hilo.asignadaA,
