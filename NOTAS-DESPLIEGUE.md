@@ -43,11 +43,66 @@ Meta al registrar la URL del webhook:
 Y hay que poner el `phone_number_id` en `tenants.phone_number_id`, que es el
 discriminador con el que el webhook decide de qué cliente es cada mensaje.
 
+## El agente ya contesta
+
+Un mensaje entrante dispara una respuesta del agente. Corre **después** de la
+respuesta HTTP (`after()` de Next), así que Meta recibe su 200 enseguida y el
+turno del modelo no deja abierta la transacción del webhook.
+
+Dónde sale y dónde no:
+
+- **Sin `PROVEEDOR_WHATSAPP=meta` no sale nada a la red.** El proveedor por
+  defecto es el simulado: escribe la fila en `contactos` y no llama a nadie.
+- La compuerta lo calla ante las prohibiciones absolutas —baja pedida, número
+  errado, sin consentimiento, obligación cerrada— y cuando un asesor tomó el
+  hilo. **Un domingo sí contesta**: la Ley 2300 limita cuándo la empresa
+  contacta, no si puede responderle a quien acaba de escribir.
+- Lo que puede ofrecer sale de `tenant_cobranza.limites_por_tramo`. Vacío
+  significa **no negocia nada**: sin descuento, una sola cuota. Un cliente nuevo
+  nace así hasta que se le carguen sus límites por escrito.
+
+Un turno del modelo tardó **18 segundos** en la prueba local. Para WhatsApp es
+mucho: conviene medirlo en la pantalla de Consumo antes de encenderlo con un
+cliente.
+
+## El modo demo, y por qué no es un agujero
+
+`tenants.modo_demo` habilita en la consola un redactor que escribe **como si
+escribiera el deudor**. Sirve para mostrar el producto y para reproducir un caso
+sin esperar a que alguien conteste.
+
+Nace en `false`. El tenant sembrado lo tiene en `true` porque su cartera es
+inventada; encenderlo en un cliente real es un UPDATE que queda escrito.
+
+No abre un camino nuevo: el mensaje entra por `procesarWebhook`, la misma
+función que corre cuando llama Meta, con el tenant salido de la sesión y no del
+payload. Y queda marcado `proveedor = 'simulado'` en la fila para siempre, así
+que no se cuenta como evidencia ante la SIC ni suma en la pantalla de Consumo.
+
 ## Los datos son de demostración
 
-La cartera, las 40 conversaciones y los 362 mensajes son generados. Los nombres,
-teléfonos y saldos son inventados. Antes de cargar cartera real conviene borrar
-el tenant de demo, no mezclarlos.
+La cartera, las 40 conversaciones y los ~410 mensajes son generados. Los
+nombres, teléfonos y saldos son inventados. Antes de cargar cartera real
+conviene borrar el tenant de demo, no mezclarlos.
+
+Los hilos siguen ocho guiones —promesa de pago, acuerdo de cuotas, disputa,
+número errado, baja, sin respuesta, situación difícil, apenas abierto— y cada
+uno deja el estado que le corresponde: el que pidió la baja queda no
+contactable, el del número errado queda marcado y pausado.
+
+## Migraciones nuevas desde el último despliegue
+
+Correr `pnpm migrar` antes de que la app arranque. Son cuatro:
+
+| Migración | Qué agrega |
+|---|---|
+| `20260824000000_numero_errado` | `deudores.numero_errado_en` |
+| `20260825000000_contacto_sin_obligacion` | `contactos.obligacion_id` pasa a nullable |
+| `20260826000000_modo_demo` | `tenants.modo_demo` |
+| `20260827000000_categoria_contacto` | `contactos.categoria` y `conversacion_meta` |
+
+La de `obligacion_id` arregla una caída real: el deudor que ya pagó todo escribe
+y el webhook perdía el mensaje entero con «invalid input syntax for type uuid».
 
 ## La base se pausa
 
