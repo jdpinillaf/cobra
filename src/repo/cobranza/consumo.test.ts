@@ -132,14 +132,46 @@ describe('resumenDelPeriodo', () => {
     expect(porNombre.marketing.costoCop).toBeGreaterThan(porNombre.utility.costoCop)
   })
 
-  it('no cuenta lo que nos inventamos en el modo demo', async () => {
-    // Un mensaje del botón de demo no se le cobra a nadie. Contarlo haría que
-    // la pantalla que mide el negocio mida también nuestros ensayos.
-    await contacto()
-    await contacto({ proveedor: 'simulado', costoCop: 0, categoria: 'servicio' })
+  it('los bloqueados no consumen cupo de conversaciones', async () => {
+    // El motor abre el hilo ANTES de evaluar el plan, así que un deudor con
+    // opt-out genera conversación y contacto bloqueado y nada más. Sin filtrar,
+    // esa "conversación" consumía cupo a COP 180 de excedente — tres
+    // centímetros debajo del texto de la pantalla que dice que los bloqueados
+    // no consumen cupo.
+    await contacto({ resultado: 'bloqueado', costoCop: 0, categoria: null, cuerpo: '' })
 
     const r = await resumenDelPeriodo(base.db, TENANT, PERIODO)
-    expect(r.mensajesQueCuentan).toBe(1)
+    expect(r.mensajesQueCuentan).toBe(0)
+    expect(r.bloqueados).toBe(1)
+    expect(r.conversaciones).toBe(0)
+  })
+
+  it('un envío fallido no diluye el precio por mensaje', async () => {
+    // No se entregó y no se cobró. Contándolo, un fallido más un entregado
+    // —los dos utility— mostraban COP 1,6 por mensaje: un precio que no existe
+    // en ningún rate card, en la columna que el cliente compara contra la
+    // factura de Meta.
+    await contacto({ resultado: 'fallido', costoCop: 0, categoria: 'utility' })
+    await contacto({ resultado: 'entregado', costoCop: 3.2, categoria: 'utility' })
+
+    const r = await resumenDelPeriodo(base.db, TENANT, PERIODO)
+    const utility = r.porCategoria.find((c) => c.categoria === 'utility')!
+    expect(utility.mensajes).toBe(1)
+    expect(utility.costoCop).toBeCloseTo(3.2, 4)
+  })
+
+  it('cuenta el tráfico del proveedor simulado, y es a propósito', async () => {
+    // Antes se excluía `proveedor = 'simulado'` para dejar afuera el botón de
+    // demo. Filtraba media conversación —el entrante inyectado sí, la respuesta
+    // del agente y sus tokens no— y encima `'simulado'` significa dos cosas:
+    // `crearProveedores` cae ahí cuando faltan las credenciales de Meta. Un
+    // cliente desplegado sin configurar veía la pantalla en cero y parecía un
+    // mes tranquilo en vez de una configuración rota.
+    await contacto()
+    await contacto({ proveedor: 'simulado', costoCop: 3.2, categoria: 'utility' })
+
+    const r = await resumenDelPeriodo(base.db, TENANT, PERIODO)
+    expect(r.mensajesQueCuentan).toBe(2)
   })
 
   it('respeta el periodo por los dos bordes', async () => {
@@ -185,6 +217,22 @@ describe('resumenDelPeriodo', () => {
       expect(r.conversaciones).toBe(1)
       expect(r.tokensEntrada).toBe(2500)
       expect(r.tokensSalida).toBe(500)
+    })
+
+    it('cuenta el turno aunque el proveedor no reporte tokens', async () => {
+      // Filtrando por `tokens_in IS NOT NULL`, un turno sin `usage` desaparecía
+      // entero — incluido del denominador de turnos por conversación, que es la
+      // cifra que se mira para optimizar. El turno ocurrió y costó.
+      await base.db.query(
+        `INSERT INTO agent_events (tenant_id, paso, decision, motivo, proveedor,
+                                   tokens_in, tokens_out, latencia_ms, conversacion_id, created_at)
+         VALUES ($1,'cerebro','ok','','modelo',NULL,NULL,900,$2,$3)`,
+        [TENANT, conversacionId, DENTRO],
+      )
+
+      const r = await consumoIaDelPeriodo(base.db, TENANT, PERIODO)
+      expect(r.turnos).toBe(1)
+      expect(r.tokensEntrada).toBe(0)
     })
 
     it('ignora los pasos de la traza, que no consumen tokens', async () => {

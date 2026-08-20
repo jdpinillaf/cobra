@@ -82,11 +82,19 @@ export interface ResumenConsumo {
 }
 
 /**
- * El resumen del periodo.
+ * El resumen del periodo. Todo lo que pasó, sin filtrar por proveedor.
  *
- * Excluye lo simulado. Un mensaje que nos inventamos desde el botón de demo no
- * se le cobra a nadie, y contarlo acá haría que la pantalla que mide el negocio
- * mida también nuestros ensayos.
+ * Antes excluía `proveedor = 'simulado'` para dejar afuera el botón de demo.
+ * Estaba mal por dos lados. Uno: filtraba media conversación — el entrante
+ * inyectado sí, pero la respuesta del agente y sus tokens no—, así que el
+ * número no era ni "tráfico real" ni "todo el tráfico". Dos: `'simulado'`
+ * significa dos cosas distintas, porque `crearProveedores` cae al proveedor
+ * simulado cuando faltan las credenciales de Meta. Un cliente desplegado sin
+ * `PROVEEDOR_WHATSAPP=meta` veía la pantalla entera en cero y parecía un mes
+ * tranquilo, no una configuración rota.
+ *
+ * Y el filtro tampoco hacía falta: el tráfico de demo solo existe en tenants
+ * con `modo_demo`, y ahí mostrar lo que costaría es justamente el punto.
  */
 export async function resumenDelPeriodo(
   db: Db,
@@ -105,18 +113,29 @@ export async function resumenDelPeriodo(
       `SELECT COALESCE(SUM(costo_cop), 0)                                   AS costo,
               COUNT(*) FILTER (WHERE resultado <> 'bloqueado')              AS cuentan,
               COUNT(*) FILTER (WHERE resultado =  'bloqueado')              AS bloqueados,
-              COUNT(DISTINCT conversacion_id)                               AS conversaciones
+              -- Filtrado igual que las dos de arriba. Sin el FILTER, un deudor
+              -- con opt-out generaba conversación y contacto bloqueado y nada
+              -- más, y esa "conversación" consumía cupo a COP 180 de excedente
+              -- —tres centímetros debajo del texto que dice que los bloqueados
+              -- no consumen cupo—. El motor abre el hilo antes de evaluar el
+              -- plan, así que el caso es común, no raro.
+              COUNT(DISTINCT conversacion_id)
+                FILTER (WHERE resultado <> 'bloqueado')                     AS conversaciones
          FROM contactos
-        WHERE tenant_id = $1 AND ocurrido_en >= $2 AND ocurrido_en < $3
-          AND proveedor IS DISTINCT FROM 'simulado'`,
+        WHERE tenant_id = $1 AND ocurrido_en >= $2 AND ocurrido_en < $3`,
       [tenantId, periodo.desde, periodo.hasta],
     ),
 
     db.query<{ categoria: CategoriaFacturable; n: string; costo: string }>(
+      // `fallido` afuera: no se entregó, no se cobró, y contarlo como mensaje
+      // con categoría partía el costo entre uno más. Con un fallido y un
+      // entregado, ambos utility, la columna "por mensaje" mostraba COP 1,6 —
+      // un precio que no existe en ningún rate card, y es la columna que el
+      // cliente compara contra la factura de Meta.
       `SELECT categoria, COUNT(*) AS n, COALESCE(SUM(costo_cop), 0) AS costo
          FROM contactos
         WHERE tenant_id = $1 AND ocurrido_en >= $2 AND ocurrido_en < $3
-          AND categoria IS NOT NULL AND proveedor IS DISTINCT FROM 'simulado'
+          AND categoria IS NOT NULL AND resultado <> 'fallido'
         GROUP BY categoria
         ORDER BY costo DESC`,
       [tenantId, periodo.desde, periodo.hasta],
@@ -126,7 +145,7 @@ export async function resumenDelPeriodo(
       `SELECT canal, COUNT(*) AS n, COALESCE(SUM(costo_cop), 0) AS costo
          FROM contactos
         WHERE tenant_id = $1 AND ocurrido_en >= $2 AND ocurrido_en < $3
-          AND resultado <> 'bloqueado' AND proveedor IS DISTINCT FROM 'simulado'
+          AND resultado <> 'bloqueado'
         GROUP BY canal
         ORDER BY costo DESC`,
       [tenantId, periodo.desde, periodo.hasta],
@@ -168,6 +187,13 @@ export interface ConsumoIaDelPeriodo {
  * negocia por conversación, y una conversación de doce turnos y una de uno
  * valen lo mismo para el cliente y muy distinto para nosotros. Esa brecha es
  * exactamente lo que hay que mirar para optimizar.
+ *
+ * El filtro es `paso = 'cerebro'` y no `tokens_in IS NOT NULL`. Un proveedor
+ * que no reporta `usage` deja los tokens en NULL, y filtrando por eso el turno
+ * desaparecía entero — también del denominador de turnos por conversación, que
+ * es justo la cifra que se mira para optimizar. Los pasos de herramienta viven
+ * en la misma tabla y no consumen tokens, así que contarlos como turnos
+ * inflaría el numerador: por eso tampoco es "todo".
  */
 export async function consumoIaDelPeriodo(
   db: Db,
@@ -188,7 +214,7 @@ export async function consumoIaDelPeriodo(
             percentile_disc(0.5) WITHIN GROUP (ORDER BY latencia_ms) AS latencia
        FROM agent_events
       WHERE tenant_id = $1 AND created_at >= $2 AND created_at < $3
-        AND tokens_in IS NOT NULL`,
+        AND paso = 'cerebro'`,
     [tenantId, periodo.desde, periodo.hasta],
   )
 

@@ -1,6 +1,7 @@
 import { crearProveedores } from '@/channels/factory'
 import type { ChannelProvider } from '@/channels/provider'
 import { canalDelIntento } from '@/channels/provider'
+import type { CategoriaFacturable } from '@/channels/tarifas'
 import { categoriaDelEnvio } from '@/channels/ventana-servicio'
 import { planificarEnvio } from '@/cadence/planificador'
 import { registrarContacto } from '@/repo/cobranza/contactos'
@@ -70,7 +71,25 @@ export async function ejecutarPaso(
 
   const escribir = (
     resultado: Parameters<typeof registrarContacto>[2]['resultado'],
-    datos: { canal: 'whatsapp' | 'sms'; cuerpo: string; motivoBloqueo?: string | null; costoCop?: number; idProveedor?: string | null; proveedor?: string | null },
+    datos: {
+      canal: 'whatsapp' | 'sms'
+      cuerpo: string
+      motivoBloqueo?: string | null
+      costoCop?: number
+      idProveedor?: string | null
+      proveedor?: string | null
+      /**
+       * Con qué se factura. Se calculaba dieciocho líneas más abajo, se le
+       * entregaba al proveedor para que cobrara, y no se guardaba: todo contacto
+       * de cadencia entraba con `categoria` en NULL.
+       *
+       * La cadencia es justo la que manda el grueso de las plantillas
+       * facturables, así que el desglose de la pantalla de Consumo salía vacío
+       * debajo de un total que no era cero, y el cupo de plantillas no se movía
+       * nunca — o sea que el excedente vendido no se facturaba jamás.
+       */
+      categoria?: CategoriaFacturable | null
+    },
   ) =>
     registrarContacto(db, tenantId, {
       obligacionId: params.obligacionId,
@@ -84,6 +103,7 @@ export async function ejecutarPaso(
       resultado,
       motivoBloqueo: datos.motivoBloqueo ?? null,
       costoCop: datos.costoCop ?? 0,
+      categoria: datos.categoria ?? null,
       idProveedor: datos.idProveedor ?? null,
       proveedor: datos.proveedor ?? null,
     })
@@ -148,6 +168,8 @@ export async function ejecutarPaso(
     cuerpo,
     motivoBloqueo: enviado.ok ? null : (enviado.error ?? 'fallo de envío'),
     costoCop: enviado.costoCop,
+    // Un intento que no salió no se factura, así que tampoco tiene categoría.
+    categoria: enviado.estado === 'fallido' ? null : categoria,
     idProveedor: enviado.idProveedor,
     proveedor: proveedores[canal].nombre,
   })

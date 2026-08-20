@@ -132,9 +132,10 @@ export default async function PaginaConsumo({
       </dl>
 
       <p className="mt-4 max-w-prose text-sm text-ink-faint">
-        El costo del canal es lo que se le paga a Meta y a Twilio. No incluye lo que se manda
-        desde el modo demo, que no se le cobra a nadie. Los bloqueados no cuestan ni consumen
-        cupo: están acá porque son la evidencia de que la Ley 2300 se respetó.
+        El costo del canal es lo que se le paga a Meta y a Twilio, sobre la tarifa vigente de
+        cada categoría. Los bloqueados no cuestan ni consumen cupo: están acá porque son la
+        evidencia de que la Ley 2300 se respetó. Los envíos que fallaron tampoco entran en el
+        desglose — no se entregaron y no se cobran.
       </p>
 
       {resumen.mensajesQueCuentan === 0 && resumen.bloqueados === 0 && (
