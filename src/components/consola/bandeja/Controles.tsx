@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import {
   accionEnviar,
   accionNota,
@@ -31,8 +31,8 @@ export interface PlantillaUI {
   variables: string[]
 }
 
-function faltaPara(expiraEn: string): string {
-  const ms = new Date(expiraEn).getTime() - Date.now()
+function faltaPara(expiraEn: string, ahora: number): string {
+  const ms = new Date(expiraEn).getTime() - ahora
   if (ms <= 0) return 'cerrada'
   const horas = Math.floor(ms / 3_600_000)
   const minutos = Math.floor((ms % 3_600_000) / 60_000)
@@ -83,7 +83,25 @@ export function Controles({
   const [plantillaId, setPlantillaId] = useState('')
   const [variables, setVariables] = useState<string[]>([])
 
-  const abierta = ventanaExpiraEn !== null && new Date(ventanaExpiraEn).getTime() > Date.now()
+  /**
+   * El reloj de la ventana, en estado y no leído durante el render.
+   *
+   * `Date.now()` en el cuerpo del componente es una función impura: React puede
+   * volver a renderizar sin que haya cambiado nada y obtener otro resultado.
+   *
+   * Pero lo que arregla de verdad es un bug de la pantalla. La ventana de 24 h
+   * se vencía **con el asesor mirándola** y nada volvía a evaluar la condición:
+   * el redactor seguía ofreciendo texto libre, la persona escribía tres
+   * párrafos y `decidirEnvioManual` los rechazaba del otro lado. Con el tic
+   * cada medio minuto, el redactor se convierte solo en la lista de plantillas.
+   */
+  const [ahora, setAhora] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setAhora(Date.now()), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const abierta = ventanaExpiraEn !== null && new Date(ventanaExpiraEn).getTime() > ahora
   const elegida = plantillas.find((p) => p.id === plantillaId) ?? null
 
   const correr = (
@@ -147,7 +165,7 @@ export function Controles({
 
         <span className={`ml-auto text-[13px] ${abierta ? 'text-entregado' : 'text-diferido'}`}>
           {abierta && ventanaExpiraEn
-            ? `Ventana abierta · quedan ${faltaPara(ventanaExpiraEn)}`
+            ? `Ventana abierta · quedan ${faltaPara(ventanaExpiraEn, ahora)}`
             : 'Ventana cerrada · solo plantillas'}
         </span>
       </div>
