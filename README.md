@@ -1,4 +1,4 @@
-# Ponos
+# Ponox
 
 Agente de cobranzas conversacional para Colombia. Ingiere la cartera del cliente, ejecuta una cadencia de contacto por WhatsApp/SMS que **cumple la Ley 2300 por construcción**, y genera links de pago con referencia única contra la pasarela del propio cliente.
 
@@ -112,10 +112,36 @@ nota en el panel, no en el teléfono.
 
 ## Estado
 
-Listo y verificado: modelo de dominio, compliance, cadencia, ingesta, canal saliente y entrante, ventana de servicio, opt-out, pagos, simulador del piloto, la landing y la demo conversacional.
+Este repo es el motor de **dos productos**: cobranza y conciliación. El detalle
+verificado, con diagramas de cada flujo, está en
+[`docs/estado-del-producto.md`](docs/estado-del-producto.md).
 
-Pendiente:
+**Cobranza — construido y verificado.** Modelo de dominio, compliance, cadencia,
+canal saliente y entrante sobre Postgres con RLS por tenant, ventana de servicio,
+opt-out, el agente contestando sobre la base, la bandeja de conversaciones, la
+pantalla de Consumo, la landing y la demo.
 
-- **Aprobación humana caso a caso.** Hoy `proponerAcuerdo` (`src/agent/herramientas.ts`) aprueba lo que cabe en los rangos que el cliente autorizó por escrito, y escala el resto. El modelo de dominio contempla `esperando_aprobacion`, pero no hay panel donde alguien apruebe.
-- Panel de operación para el cliente. Chatwoot (`src/integrations/chatwoot.ts`) cubre la consola de conversaciones, no la de cartera.
-- **Persistencia real detrás de `RepositorioWebhook`.** Hoy el webhook usa `RepositorioEnMemoria`, que se pierde al reiniciar y no se comparte entre instancias. Con dos réplicas y Meta reintentando, un entrante se registraría dos veces y el cupo quedaría mal contado. Es lo primero que hay que cerrar antes del primer cliente.
+**Conciliación — esquema y especificación, sin motor.** Las ocho tablas existen
+con RLS desde la primera migración, y los cinco caminos de `pnpm test:e2e` son su
+contrato. Hoy fallan a propósito: `crearSistema()` está sin implementar.
+
+Pendiente en cobranza, por orden de lo que costaría descubrirlo tarde:
+
+- **Un solo número remitente para todos los clientes.** El webhook resuelve el
+  tenant por `phone_number_id`, pero `crearProveedores` arma el remitente con
+  `META_PHONE_NUMBER_ID` del entorno. Con dos clientes vivos en la misma WABA, al
+  deudor del segundo le contesta el número del primero. El arreglo son
+  credenciales por tenant.
+- **El circuito del pago no se cierra.** `src/payments/wompi.ts` tiene checkout,
+  checksum del webhook e interpretación de eventos, con tests, pero no existe la
+  ruta que reciba ese webhook y el link del agente apunta a `/pagar`.
+- **La cartera solo entra por `pnpm sembrar`.** `src/ingest` mapea y normaliza
+  Excel y CSV, con tests, pero nadie lo llama desde la app: sin pantalla de carga
+  y sin escribir en `cargas` ni en `filas_cuarentena`.
+- **Aprobación humana caso a caso.** Hoy `proponerAcuerdo`
+  (`src/agent/herramientas.ts`) aprueba lo que cabe en los rangos que el cliente
+  autorizó por escrito, y escala el resto. El modelo de dominio contempla
+  `esperando_aprobacion` y la tabla `approvals` existe, pero no hay panel donde
+  alguien apruebe.
+- **La pestaña Cumplimiento de la consola está apagada.** Es el entregable que
+  sostiene la venta; los datos ya están en `contactos`, falta la pantalla.
