@@ -112,14 +112,17 @@ export function faseDe(e: Evento): Fase {
 // --- Ritmo de tecleo ---
 
 /**
- * A 16 ms por carácter se lee como alguien que escribe con soltura: rápido
- * para una persona, lento para una máquina. Las pausas de puntuación son lo
- * que separa "alguien escribiendo" de "un banner de marquesina".
+ * A 11 ms por carácter se lee como alguien que escribe rápido y seguro. Se
+ * probó a 16 y el acto de configuración se sentía como espera, no como
+ * animación: nadie mira teclear, mira lo que quedó escrito.
+ *
+ * Las pausas de puntuación se quedan —son lo que separa "alguien escribiendo"
+ * de "un banner de marquesina"— pero recortadas.
  */
-export const MS_POR_CARACTER = 16
-const MS_TRAS_PUNTO = 140
-const MS_TRAS_COMA = 70
-const PAUSA_TRAS_LINEA = 300
+export const MS_POR_CARACTER = 11
+const MS_TRAS_PUNTO = 90
+const MS_TRAS_COMA = 45
+const PAUSA_TRAS_LINEA = 170
 
 /**
  * Determinista: depende solo del texto. La espera del evento la calcula esta
@@ -161,6 +164,10 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
 ]
 
 /**
+ * Cuatro líneas, no cinco: se cayó la del tono —"escribes por WhatsApp,
+ * tuteando"— porque el chat de la fase 2 ya lo demuestra, y decir en texto lo
+ * que después se ve es justo lo que hacía largo este acto.
+ *
  * Ninguna línea menciona una norma. Todo lo que acota al agente lo fija el
  * cliente: cuotas, descuento, frecuencia y a quién escalar. Así el acto 1
  * generaliza —es cómo se construye cualquier agente— y el argumento de que el
@@ -168,13 +175,12 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
  */
 const CONFIGURACION: readonly Evento[] = [
   escribe(`Eres el agente de cobranza de ${CLIENTE.empresa}.`),
-  escribe('Escribes por WhatsApp, en español de Colombia, tuteando.'),
-  escribe('Puedes ofrecer hasta 2 cuotas. Descuento máximo: 0 %.'),
-  escribe('Un contacto por semana por persona. Nunca más.'),
-  escribe(`Si piden algo fuera de eso, se lo pasas a ${CLIENTE.operadora}.`),
-  ...CADENCIA.map((paso): Evento => ({ tipo: 'paso', espera: 620, paso })),
-  ...HERRAMIENTAS.map((herramienta): Evento => ({ tipo: 'conecta', espera: 760, herramienta })),
-  { tipo: 'despliega', espera: 1500, texto: 'Agente desplegado' },
+  escribe('Puedes ofrecer hasta 2 cuotas. Sin descuento.'),
+  escribe('Un contacto por semana. Nunca más.'),
+  escribe(`Lo que se salga de eso, va para ${CLIENTE.operadora}.`),
+  ...CADENCIA.map((paso): Evento => ({ tipo: 'paso', espera: 360, paso })),
+  ...HERRAMIENTAS.map((herramienta): Evento => ({ tipo: 'conecta', espera: 400, herramienta })),
+  { tipo: 'despliega', espera: 900, texto: 'Agente desplegado' },
 ]
 
 export const CASOS: readonly Caso[] = [
@@ -191,48 +197,55 @@ const REFERENCIA = 'CR-00412-2608'
 /**
  * El hilo de un caso, con avances de **otros** casos intercalados. Sin eso
  * esto es una conversación con marco de app; con eso es una cola.
+ *
+ * Los tiempos van un 35 % por debajo de la primera versión. **No se cayó ningún
+ * beat**: entran los mismos cinco casos, la misma negociación, el mismo link y
+ * los mismos dos desvíos. Lo que se recortó son las esperas entre uno y otro,
+ * que es donde la demo se sentía lenta. Las burbujas se quedan en pantalla, así
+ * que el tiempo de lectura no es la espera de cada evento sino lo que queda
+ * visible después.
  */
 const OPERACION: readonly Evento[] = [
-  ...CASOS.map((caso): Evento => ({ tipo: 'cola', espera: 350, caso })),
-  { tipo: 'abre', espera: 450, caso: 'CR-00412' },
-  { tipo: 'avance', espera: 500, caso: 'CR-00412', estado: 'contactado', paso: 1 },
+  ...CASOS.map((caso): Evento => ({ tipo: 'cola', espera: 230, caso })),
+  { tipo: 'abre', espera: 290, caso: 'CR-00412' },
+  { tipo: 'avance', espera: 320, caso: 'CR-00412', estado: 'contactado', paso: 1 },
   {
     tipo: 'mensaje',
-    espera: 900,
+    espera: 580,
     de: 'agente',
     hora: '09:12',
     texto: `Hola Ana, te escribo de ${CLIENTE.empresa}. Tu saldo hoy es $1.245.000. ¿Lo vemos?`,
   },
-  { tipo: 'escribiendo', espera: 1200 },
+  { tipo: 'escribiendo', espera: 780 },
   {
     tipo: 'mensaje',
-    espera: 900,
+    espera: 580,
     de: 'cliente',
     hora: '09:14',
     texto: 'No tengo cómo pagar todo de una.',
   },
-  { tipo: 'avance', espera: 600, caso: 'CR-00412', estado: 'negociando' },
-  { tipo: 'avance', espera: 700, caso: 'CR-00518', estado: 'contactado', paso: 1 },
+  { tipo: 'avance', espera: 390, caso: 'CR-00412', estado: 'negociando' },
+  { tipo: 'avance', espera: 460, caso: 'CR-00518', estado: 'contactado', paso: 1 },
   {
     tipo: 'avance',
-    espera: 900,
+    espera: 580,
     caso: 'CR-00629',
     estado: 'espera',
     nota: `fuera de la ventana que fijó ${CLIENTE.empresa} · reprogramado 07:00`,
   },
   {
     tipo: 'mensaje',
-    espera: 1100,
+    espera: 720,
     de: 'agente',
     hora: '09:15',
     texto: 'Puedo dividirlo en 2 cuotas de $622.500, sin recargo. La primera hoy.',
   },
-  { tipo: 'escribiendo', espera: 1100 },
-  { tipo: 'mensaje', espera: 800, de: 'cliente', hora: '09:16', texto: 'Sí, así sí puedo.' },
-  { tipo: 'avance', espera: 600, caso: 'CR-00412', estado: 'acuerdo', paso: 2 },
+  { tipo: 'escribiendo', espera: 720 },
+  { tipo: 'mensaje', espera: 520, de: 'cliente', hora: '09:16', texto: 'Sí, así sí puedo.' },
+  { tipo: 'avance', espera: 390, caso: 'CR-00412', estado: 'acuerdo', paso: 2 },
   {
     tipo: 'link',
-    espera: 1400,
+    espera: 910,
     hora: '09:16',
     referencia: REFERENCIA,
     montoCop: CUOTA_COP,
@@ -240,22 +253,22 @@ const OPERACION: readonly Evento[] = [
   },
   {
     tipo: 'avance',
-    espera: 900,
+    espera: 580,
     caso: 'CR-00473',
     estado: 'humano',
     nota: `pidió condonación · fuera de los límites, va para ${CLIENTE.operadora}`,
   },
-  { tipo: 'avance', espera: 700, caso: 'CR-00518', estado: 'negociando' },
-  { tipo: 'pago', espera: 1200, caso: 'CR-00412', montoCop: CUOTA_COP, referencia: REFERENCIA },
+  { tipo: 'avance', espera: 460, caso: 'CR-00518', estado: 'negociando' },
+  { tipo: 'pago', espera: 780, caso: 'CR-00412', montoCop: CUOTA_COP, referencia: REFERENCIA },
   {
     tipo: 'mensaje',
-    espera: 1000,
+    espera: 650,
     de: 'agente',
     hora: '09:21',
     texto: 'Recibido. Te queda una cuota para el 26. No te vuelvo a escribir hasta entonces.',
   },
-  { tipo: 'avance', espera: 700, caso: 'CR-00412', estado: 'pagado', paso: 3 },
-  { tipo: 'avance', espera: 800, caso: 'CR-00551', estado: 'contactado', paso: 1 },
+  { tipo: 'avance', espera: 460, caso: 'CR-00412', estado: 'pagado', paso: 3 },
+  { tipo: 'avance', espera: 520, caso: 'CR-00551', estado: 'contactado', paso: 1 },
 ]
 
 export const GUION: readonly Evento[] = [...CONFIGURACION, ...OPERACION]

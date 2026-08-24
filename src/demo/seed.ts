@@ -107,6 +107,7 @@ export function generarCartera(opciones: {
         rnd() < 0.08
           ? { canal: null, diaSemana: null, horaDesde: 14, horaHasta: 18 }
           : { canal: null, diaSemana: null, horaDesde: null, horaHasta: null },
+      numeroErradoEn: null,
     })
 
     const diasMora = sortearDiasMora(rnd)

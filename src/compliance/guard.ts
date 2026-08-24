@@ -14,6 +14,7 @@ import { enBogota, type InstanteBogota } from './reloj-bogota'
 export type MotivoBloqueo =
   | 'destinatario_es_referencia'
   | 'opt_out'
+  | 'numero_no_corresponde'
   | 'sin_consentimiento'
   | 'obligacion_cerrada'
   | 'acuerdo_vigente'
@@ -102,6 +103,19 @@ export function evaluar(solicitud: SolicitudEnvio): Decision {
     )
   }
 
+  // Después del opt-out a propósito. Los dos frenan igual, pero no explican lo
+  // mismo ni se revierten igual: la baja la pidió el deudor y es irreversible;
+  // esto lo afirmó quien contesta el teléfono y un humano lo puede limpiar. Si
+  // ante los dos hechos quedara registrado el motivo reversible, alguien lo
+  // limpiaría y reactivaría una cadencia que la ley apagó.
+  if (deudor.numeroErradoEn !== null) {
+    return bloquear(
+      'numero_no_corresponde',
+      `Alguien en este número avisó el ${deudor.numeroErradoEn} que el deudor no es él. ` +
+        'Insistirle a un tercero es tratamiento de datos de quien nunca autorizó nada.',
+    )
+  }
+
   if (!deudor.consentimiento.otorgado) {
     return bloquear(
       'sin_consentimiento',
@@ -184,7 +198,18 @@ export function evaluar(solicitud: SolicitudEnvio): Decision {
 
   // --- Frecuencia: se cuenta cruzando canales, nunca por canal ---
 
-  const previos = contactosQueCuentan(solicitud.contactosDelDeudor)
+  // Se descartan los contactos con fecha ilegible antes de contar.
+  //
+  // Un `timestamp` que no parsea llega de la vida real: una fila de cartera mal
+  // formada, un webhook con un campo raro, una migración a medio hacer. Sin
+  // esto, `new Date('cualquier cosa')` produce un Invalid Date y `enBogota`
+  // lanza `RangeError`, y una sola fila mala deja al deudor sin poder ser
+  // evaluado nunca más. Es mejor contar de menos y seguir operando que romper
+  // la evaluación completa: el límite de frecuencia protege al deudor, y un
+  // deudor sin evaluar no queda protegido, queda sin sistema.
+  const previos = contactosQueCuentan(solicitud.contactosDelDeudor).filter((c) =>
+    Number.isFinite(new Date(c.timestamp).getTime()),
+  )
   const instanteMs = ahora.getTime()
 
   const hoy = previos.filter((c) => enBogota(new Date(c.timestamp)).fecha === t.fecha)

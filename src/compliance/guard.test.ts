@@ -30,6 +30,7 @@ function unDeudor(over: Partial<Deudor> = {}): Deudor {
       revocadoEn: null,
     },
     preferencia: { canal: null, diaSemana: null, horaDesde: null, horaHasta: null },
+    numeroErradoEn: null,
     ...over,
   }
 }
@@ -119,6 +120,42 @@ describe('prohibiciones absolutas', () => {
       consentimiento: { otorgado: false, fuente: 'importado', fecha: '2025-01-15', revocadoEn: null },
     })
     expect(motivo(pedir({ deudor }))).toBe('sin_consentimiento')
+  })
+
+  it('a quien dijo que el número no es suyo no se le escribe más', () => {
+    // Insistirle a un tercero que ya dijo que no es el deudor no es una
+    // molestia: es tratamiento de datos de alguien que nunca autorizó nada.
+    const deudor = unDeudor({ numeroErradoEn: '2026-08-01T10:00:00-05:00' })
+    expect(motivo(pedir({ deudor }))).toBe('numero_no_corresponde')
+  })
+
+  it('el número errado bloquea aunque el consentimiento esté vigente', () => {
+    // Es lo que lo hace absoluto: no lo levanta el horario, ni la cadencia, ni
+    // que la cartera diga que el deudor autorizó. Quien autorizó es otra
+    // persona, no la que contesta este teléfono.
+    const deudor = unDeudor({
+      numeroErradoEn: '2026-08-01T10:00:00-05:00',
+      consentimiento: { otorgado: true, fuente: 'pagare', fecha: '2025-01-15', revocadoEn: null },
+    })
+    const decision = pedir({ deudor, ahora: MARTES('10:00') })
+    expect(decision.permitido).toBe(false)
+  })
+
+  it('la baja gana sobre el número errado cuando están los dos', () => {
+    // No cambia qué se hace —los dos frenan— pero sí qué se explica y qué se
+    // puede revertir. La baja es irreversible; el número errado lo revisa un
+    // humano. Si el motivo que queda registrado es el reversible, alguien lo va
+    // a limpiar y va a reactivar una cadencia que la ley apagó.
+    const deudor = unDeudor({
+      numeroErradoEn: '2026-08-02T10:00:00-05:00',
+      consentimiento: {
+        otorgado: true,
+        fuente: 'pagare',
+        fecha: '2025-01-15',
+        revocadoEn: '2026-08-01T10:00:00-05:00',
+      },
+    })
+    expect(motivo(pedir({ deudor }))).toBe('opt_out')
   })
 })
 

@@ -121,7 +121,128 @@ describe('procesarWebhook', () => {
       estadosAplicados: 0,
       entrantesRegistrados: 0,
       optOuts: 0,
+      numerosErrados: 0,
       duplicadosIgnorados: 0,
+      aResponder: [],
     })
+  })
+})
+
+describe('una ráfaga del deudor es un solo turno', () => {
+  it('la respuesta sale al número desde el que escribió, no al primero de la cartera', async () => {
+    // `deudores.telefonos` es un array y el webhook matchea cualquiera. Si el
+    // deudor escribió desde el segundo, contestarle al primero manda las cifras
+    // de su deuda a un teléfono que no escribió — en cartera importada, casi
+    // siempre un familiar o una referencia.
+    const repo = new RepositorioEnMemoria()
+
+    const resumen = await procesarWebhook(
+      payload({ entrantes: [{ id: 'wamid.30', from: '573004445566', body: 'hola' }] }),
+      repo,
+    )
+
+    expect(resumen.aResponder[0].telefono).toBe('+573004445566')
+  })
+
+  it('dos mensajes del mismo deudor en un POST dejan un solo hilo por responder', async () => {
+    // Meta entrega `value.messages[]` como array: el deudor manda "hola" y
+    // enseguida "cuánto debo", y las dos llegan en la misma entrega. Los dos
+    // wamid son distintos, así que la idempotencia no los toca — y los dos
+    // caían en el mismo hilo, porque `abrirOReutilizar` reusa el abierto.
+    //
+    // Sin deduplicar, el agente contesta dos veces: dos mensajes al deudor, dos
+    // turnos de modelo cobrados, y la posibilidad de dos acuerdos o dos links
+    // de pago para la misma obligación.
+    const repo = new RepositorioEnMemoria()
+
+    const resumen = await procesarWebhook(
+      payload({
+        entrantes: [
+          { id: 'wamid.10', from: '573009998877', body: 'hola' },
+          { id: 'wamid.11', from: '573009998877', body: 'cuánto debo' },
+        ],
+      }),
+      repo,
+    )
+
+    // Los dos entrantes se registran: los dos son evidencia y los dos van al hilo.
+    expect(resumen.entrantesRegistrados).toBe(2)
+    // Pero se responde una sola vez, con los dos mensajes ya en el contexto.
+    expect(resumen.aResponder).toEqual([
+      { conversacionId: 'hilo:+573009998877', telefono: '+573009998877' },
+    ])
+  })
+
+  it('dos deudores distintos en el mismo lote sí son dos turnos', async () => {
+    const repo = new RepositorioEnMemoria()
+
+    const resumen = await procesarWebhook(
+      payload({
+        entrantes: [
+          { id: 'wamid.20', from: '573009998877', body: 'hola' },
+          { id: 'wamid.21', from: '573001112233', body: 'hola' },
+        ],
+      }),
+      repo,
+    )
+
+    expect(resumen.aResponder).toEqual([
+      { conversacionId: 'hilo:+573009998877', telefono: '+573009998877' },
+      { conversacionId: 'hilo:+573001112233', telefono: '+573001112233' },
+    ])
+  })
+})
+
+describe('número que no corresponde', () => {
+  const dice = (id: string, body: string) =>
+    payload({ entrantes: [{ id, from: '573009998877', body }] })
+
+  it('marca al deudor cuando alguien avisa que el número no es suyo', async () => {
+    const repo = new RepositorioEnMemoria()
+    const resumen = await procesarWebhook(
+      dice('wamid.20', 'yo no soy, ese número está equivocado'),
+      repo,
+    )
+
+    expect(resumen.numerosErrados).toBe(1)
+    expect(repo.numerosErrados.get('+573009998877')).toBeTruthy()
+  })
+
+  it('registra el entrante igual, porque es la prueba de que lo avisó', async () => {
+    // Mismo orden que el opt-out y por el mismo motivo: primero queda el
+    // mensaje en el log, después se actúa sobre él. Si se marcara antes y el
+    // proceso se cayera en el medio, quedaría un deudor frenado sin el mensaje
+    // que lo explica.
+    const repo = new RepositorioEnMemoria()
+    await procesarWebhook(dice('wamid.21', 'este no es mi número'), repo)
+
+    expect(repo.entrantes).toHaveLength(1)
+    expect(repo.entrantes[0].cuerpo).toBe('este no es mi número')
+  })
+
+  it('no se dispara con "no soy capaz de pagar"', async () => {
+    // En Colombia "no soy capaz" quiere decir *no puedo*. Frenarle la gestión al
+    // deudor que está diciendo que no le alcanza es el falso positivo que más
+    // caro sale.
+    const repo = new RepositorioEnMemoria()
+    const resumen = await procesarWebhook(
+      dice('wamid.22', 'no soy capaz de pagar todo este mes'),
+      repo,
+    )
+
+    expect(resumen.numerosErrados).toBe(0)
+    expect(repo.numerosErrados.size).toBe(0)
+  })
+
+  it('un mensaje puede ser baja y número errado a la vez', async () => {
+    // No compiten: uno revoca la autorización y el otro abre una revisión.
+    const repo = new RepositorioEnMemoria()
+    const resumen = await procesarWebhook(
+      dice('wamid.23', 'no es mi número, no me escriban más'),
+      repo,
+    )
+
+    expect(resumen.optOuts).toBe(1)
+    expect(resumen.numerosErrados).toBe(1)
   })
 })

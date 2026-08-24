@@ -1,5 +1,15 @@
-import { responderVerificacion, verificarFirmaMeta } from '@/channels/meta-webhook'
-import { RepositorioEnMemoria, procesarWebhook } from '@/channels/procesador-webhook'
+import { after } from 'next/server'
+import { responderEntrante } from '@/agent/responder'
+import {
+  filtrarPorNumero,
+  numerosDelPayload,
+  responderVerificacion,
+  verificarFirmaMeta,
+} from '@/channels/meta-webhook'
+import { procesarWebhook } from '@/channels/procesador-webhook'
+import { conTenant } from '@/repo/con-tenant'
+import { RepositorioPostgres } from '@/repo/cobranza/webhook-pg'
+import { obtenerDb } from '@/repo/conexion'
 
 /**
  * Webhook de WhatsApp Cloud API.
@@ -16,15 +26,98 @@ import { RepositorioEnMemoria, procesarWebhook } from '@/channels/procesador-web
  */
 
 /**
- * Repositorio de proceso.
+ * El `after()` corre con la duración máxima de la ruta, no con la del request.
  *
- * **Tapón temporal.** Se pierde al reiniciar y no se comparte entre instancias,
- * así que la idempotencia solo aguanta dentro de un proceso. Antes del primer
- * cliente hay que cambiarlo por persistencia real: con dos réplicas, Meta
- * reintentando y este repositorio, un mensaje entrante se registra dos veces y
- * el cupo del cliente queda mal contado.
+ * Adentro va un turno del modelo de hasta ocho pasos más el envío. Sin declarar
+ * esto, la plataforma corta con su default y puede dejar el estado a medias:
+ * acuerdo escrito, obligación en `acuerdo_vigente` —o sea cadencia frenada— y
+ * el deudor sin recibir nunca la confirmación.
  */
-const repositorio = new RepositorioEnMemoria()
+export const maxDuration = 300
+
+interface Pendiente {
+  tenantId: string
+  conversacionId: string
+  telefono: string
+}
+
+/**
+ * De qué cliente es cada evento.
+ *
+ * Meta agrupa en una sola entrega los eventos de todos los números de una misma
+ * WABA, así que un lote puede traer dos empresas mezcladas. El payload se parte
+ * por `phone_number_id` **antes** de tocar nada, y cada parte se procesa dentro
+ * de su propio `conTenant`: así RLS también aplica, y no solo el `WHERE` de cada
+ * consulta.
+ *
+ * Un número que no corresponde a ningún tenant se ignora en silencio. Puede ser
+ * un número dado de baja, o una suscripción vieja que Meta todavía no soltó, y
+ * no es motivo para devolver error y hacer que reintente el lote entero.
+ */
+async function procesarPorTenant(payload: unknown, urlBase: string): Promise<{ ignorados: number }> {
+  const db = await obtenerDb()
+  let ignorados = 0
+
+  for (const numero of numerosDelPayload(payload)) {
+    const [tenant] = await db.query<{ id: string }>(
+      `SELECT id FROM tenants WHERE phone_number_id = $1 AND estado = 'activo'`,
+      [numero],
+    )
+    if (!tenant) {
+      ignorados += 1
+      continue
+    }
+
+    const resumen = await conTenant(db, tenant.id, (tx) =>
+      procesarWebhook(filtrarPorNumero(payload, numero), new RepositorioPostgres(tx, tenant.id)),
+    )
+    // El `after()` se registra por tenant, apenas ese tenant commiteó. Antes se
+    // acumulaban todos y se registraban al final: si el tercero lanzaba, se
+    // perdían los pendientes de los dos primeros y esos deudores no recibían
+    // respuesta nunca, aunque su entrante ya estuviera escrito.
+    responderDespues(
+      resumen.aResponder.map((h) => ({ tenantId: tenant.id, ...h })),
+      urlBase,
+    )
+  }
+
+  return { ignorados }
+}
+
+/**
+ * El agente contesta **después** de la respuesta, no adentro.
+ *
+ * Dos razones, y las dos son de las que se pagan caras:
+ *
+ * - Meta reintenta si el 200 tarda, y degrada la entrega de la cuenta si eso se
+ *   vuelve costumbre. Un turno del modelo son segundos.
+ * - `procesarWebhook` corre dentro de `conTenant`, o sea dentro de una
+ *   transacción con una conexión reservada. Esperar al modelo ahí la deja
+ *   abierta todo ese rato, y el pool tiene fondo.
+ *
+ * Por eso corre fuera de la transacción y fuera del ciclo de la respuesta. Si
+ * falla, el entrante y la ventana ya quedaron escritos: se pierde la respuesta
+ * del agente, no la evidencia.
+ */
+function responderDespues(pendientes: Pendiente[], urlBase: string): void {
+  if (pendientes.length === 0) return
+
+  after(async () => {
+    const db = await obtenerDb()
+    for (const p of pendientes) {
+      try {
+        await responderEntrante(db, {
+          tenantId: p.tenantId,
+          conversacionId: p.conversacionId,
+          paraTelefono: p.telefono,
+          urlBase,
+        })
+      } catch (e) {
+        console.error('[whatsapp-webhook] el agente no pudo contestar', p.conversacionId, e)
+      }
+    }
+  })
+}
 
 function entorno(): { appSecret: string; tokenVerificacion: string } | null {
   const appSecret = process.env.META_APP_SECRET
@@ -77,7 +170,10 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    await procesarWebhook(payload, repositorio)
+    const { ignorados } = await procesarPorTenant(payload, new URL(request.url).origin)
+    if (ignorados > 0) {
+      console.warn(`[whatsapp-webhook] ${ignorados} número(s) sin tenant activo`)
+    }
   } catch (e) {
     // Se responde 200 igual. Meta reintenta ante cualquier no-2xx y, si el
     // payload es el que rompe, el reintento vuelve a romper: se entra en un

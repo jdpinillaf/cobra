@@ -186,6 +186,9 @@ export function normalizarFilas(
          */
         consentimiento: { otorgado: true, fuente: 'importado', fecha: fechaCorte, revocadoEn: null },
         preferencia: { canal: null, diaSemana: null, horaDesde: null, horaHasta: null },
+        // La cartera que se importa no trae esto: lo escribe el webhook cuando
+        // alguien contesta que el número no es del deudor.
+        numeroErradoEn: null,
       })
     }
 

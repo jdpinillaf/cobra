@@ -1,0 +1,16 @@
+# Lo que no sube a Vercel.
+#
+# La feature del agente todavía no va a producción: se excluyen **solo sus
+# rutas**, que es lo que crearía superficie pública. Los módulos que usan
+# (`src/agent/`, `src/components/demo/`, `src/integrations/`) siguen subiendo y
+# simplemente no entran a ningún bundle, porque sin ruta nadie los importa.
+#
+# Excluir los módulos en vez de las rutas sería más frágil: se importan entre
+# ellos y el build se rompería por un import colgando.
+#
+# Para publicar la demo: borrar estas cuatro líneas y cargar `ANTHROPIC_API_KEY`
+# en el proyecto. Ver docs/demo-para-reunion.md.
+src/app/demo
+src/app/pagar
+src/app/api/demo
+src/app/api/chatwoot

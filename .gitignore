@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# videos de la demo: se regeneran con `pnpm grabar`
+/video
+
 # vercel
 .vercel
 
@@ -40,3 +43,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .gstack/
+.vitest.json
+.auditoria.jsonl
+.vitest-e2e.json
+.pglite/

@@ -1,3 +1,4 @@
+import { detectarNumeroErrado } from './numero-errado'
 import { detectarOptOut } from './opt-out'
 import {
   interpretarEntrantes,
@@ -24,19 +25,63 @@ export interface RepositorioWebhook {
   marcarProcesado(idProveedor: string): Promise<void>
   /** Escribe el estado real sobre el `Contacto` que tenga ese `wamid`. */
   actualizarEstado(cambio: CambioEstado): Promise<void>
-  /** Registra el entrante como `Contacto` con `direccion: 'entrante'`. */
-  registrarEntrante(mensaje: MensajeEntrante): Promise<void>
+  /**
+   * Registra el entrante como `Contacto` con `direccion: 'entrante'`.
+   *
+   * Devuelve en qué hilo quedó, o `null` si el número no es de ningún deudor
+   * conocido. El id sube hasta el llamador porque es lo que necesita para
+   * hacerlo contestar, y buscarlo de nuevo por teléfono sería repetir la
+   * consulta que esta función ya hizo.
+   */
+  registrarEntrante(mensaje: MensajeEntrante): Promise<{ conversacionId: string } | null>
   /** Abre o renueva la ventana de servicio de 24 h del deudor. */
   abrirVentanaServicio(telefono: string, entranteEn: string): Promise<void>
   /** Escribe `Consentimiento.revocadoEn`. El guard ya lo respeta. */
   revocarConsentimiento(telefono: string, en: string): Promise<void>
+  /**
+   * Escribe `Deudor.numeroErradoEn` y deja el hilo para un humano.
+   *
+   * Separado de `revocarConsentimiento` porque son dos hechos distintos: la
+   * baja la pide el deudor y no se deshace; esto lo afirma quien contesta y
+   * está por verificar.
+   */
+  marcarNumeroErrado(telefono: string, en: string): Promise<void>
 }
 
 export interface ResumenWebhook {
   estadosAplicados: number
   entrantesRegistrados: number
   optOuts: number
+  numerosErrados: number
   duplicadosIgnorados: number
+  /**
+   * Los hilos donde entró un mensaje **nuevo**, sin repetir.
+   *
+   * Es lo que el llamador necesita para hacer contestar al agente. Procesar no
+   * es responder: esta función registra, y quien la llama decide qué hacer con
+   * lo registrado.
+   *
+   * **Un hilo aparece una sola vez aunque hayan entrado tres mensajes suyos.**
+   * `value.messages[]` es un array: el deudor manda "hola" y enseguida "cuánto
+   * debo", y las dos llegan en la misma entrega con wamid distintos, así que la
+   * idempotencia no las toca y las dos caen en el mismo hilo. Responder una vez
+   * por mensaje sería contestarle dos veces a quien escribió dos renglones
+   * seguidos —dos turnos de modelo cobrados, y la posibilidad de dos acuerdos
+   * para la misma obligación—. El turno se hace después de registrarlos todos,
+   * así que el agente los ve a los dos y contesta una vez.
+   */
+  aResponder: Array<{
+    conversacionId: string
+    /**
+     * El número **desde el que escribió**, que no siempre es el primero de la
+     * cartera. `deudores.telefonos` es un array y el webhook matchea cualquiera
+     * de ellos; responder al primero le manda las cifras de la deuda a un
+     * teléfono que no escribió — que en cartera importada suele ser un familiar
+     * o una referencia. Y Meta cuenta la ventana de 24 h por destinatario, así
+     * que además el envío fallaría.
+     */
+    telefono: string
+  }>
 }
 
 /**
@@ -55,7 +100,9 @@ export async function procesarWebhook(
     estadosAplicados: 0,
     entrantesRegistrados: 0,
     optOuts: 0,
+    numerosErrados: 0,
     duplicadosIgnorados: 0,
+    aResponder: [],
   }
 
   for (const cambio of interpretarEstados(payload)) {
@@ -79,7 +126,7 @@ export async function procesarWebhook(
       continue
     }
 
-    await repo.registrarEntrante(mensaje)
+    const hilo = await repo.registrarEntrante(mensaje)
     await repo.abrirVentanaServicio(mensaje.deTelefono, mensaje.ocurrioEn)
 
     if (detectarOptOut(mensaje.cuerpo)) {
@@ -87,8 +134,20 @@ export async function procesarWebhook(
       resumen.optOuts += 1
     }
 
+    // Los dos pueden dispararse con el mismo mensaje —"no es mi número, no me
+    // escriban más" es las dos cosas— y los dos se escriben. No compiten: uno
+    // revoca la autorización y el otro abre una revisión, y el guard sabe cuál
+    // explicar primero.
+    if (detectarNumeroErrado(mensaje.cuerpo)) {
+      await repo.marcarNumeroErrado(mensaje.deTelefono, mensaje.ocurrioEn)
+      resumen.numerosErrados += 1
+    }
+
     await repo.marcarProcesado(llave)
     resumen.entrantesRegistrados += 1
+    if (hilo && !resumen.aResponder.some((h) => h.conversacionId === hilo.conversacionId)) {
+      resumen.aResponder.push({ ...hilo, telefono: mensaje.deTelefono })
+    }
   }
 
   return resumen
@@ -107,6 +166,7 @@ export class RepositorioEnMemoria implements RepositorioWebhook {
   readonly entrantes: MensajeEntrante[] = []
   readonly ventanas = new Map<string, string>()
   readonly revocados = new Map<string, string>()
+  readonly numerosErrados = new Map<string, string>()
 
   async yaProcesado(id: string): Promise<boolean> {
     return this.procesados.has(id)
@@ -117,13 +177,23 @@ export class RepositorioEnMemoria implements RepositorioWebhook {
   async actualizarEstado(cambio: CambioEstado): Promise<void> {
     this.estados.push(cambio)
   }
-  async registrarEntrante(mensaje: MensajeEntrante): Promise<void> {
+  async registrarEntrante(mensaje: MensajeEntrante): Promise<{ conversacionId: string } | null> {
     this.entrantes.push(mensaje)
+    // Un hilo por teléfono, igual que en la base: el índice parcial permite una
+    // sola conversación abierta por deudor. Devolver `null` siempre dejaba
+    // inerte la única rama nueva del flujo —la que decide a quién responder— y
+    // obligaba a los tests a pisar el método para poder ejercitarla.
+    return { conversacionId: `hilo:${mensaje.deTelefono}` }
   }
   async abrirVentanaServicio(telefono: string, entranteEn: string): Promise<void> {
     this.ventanas.set(telefono, entranteEn)
   }
   async revocarConsentimiento(telefono: string, en: string): Promise<void> {
     if (!this.revocados.has(telefono)) this.revocados.set(telefono, en)
+  }
+  async marcarNumeroErrado(telefono: string, en: string): Promise<void> {
+    // Se queda con la primera vez, igual que la revocación: la fecha en que se
+    // avisó es el dato, y cada mensaje posterior la reescribía hacia adelante.
+    if (!this.numerosErrados.has(telefono)) this.numerosErrados.set(telefono, en)
   }
 }

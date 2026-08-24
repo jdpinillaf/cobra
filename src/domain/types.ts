@@ -67,6 +67,17 @@ export const Deudor = z.object({
   rol: RolContacto.default('titular'),
   consentimiento: Consentimiento,
   preferencia: PreferenciaContacto,
+  /**
+   * Cuándo alguien en este número dijo que el deudor no es él.
+   *
+   * Es distinto de `consentimiento.revocadoEn` y por eso es un campo aparte. La
+   * baja la pide el deudor y es irreversible; esto lo afirma quien contesta el
+   * teléfono y **está por verificar**: el número puede ser correcto y la persona
+   * estar esquivando. El guard bloquea igual —seguir escribiéndole a un tercero
+   * es tratamiento de datos de alguien que nunca autorizó nada— pero un humano
+   * puede limpiarlo si comprueba que el dato de la cartera estaba bien.
+   */
+  numeroErradoEn: z.string().nullable().default(null),
 })
 export type Deudor = z.infer<typeof Deudor>
 

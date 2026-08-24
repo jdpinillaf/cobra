@@ -1,0 +1,18 @@
+-- Un mensaje sin crédito abierto sigue siendo un mensaje.
+--
+-- `contactos.obligacion_id` era NOT NULL, y el webhook resolvía la obligación
+-- con `obligacionAbierta`, que devuelve nada cuando el deudor no tiene ninguna
+-- sin pagar. El código tapaba el hueco con `obligacionId ?? ''` y Postgres
+-- respondía «invalid input syntax for type uuid: ""»: el mensaje de quien acaba
+-- de terminar de pagar —el que trae el comprobante, o el reclamo— se perdía
+-- entero, y con él la ventana de 24 h y la detección de baja.
+--
+-- La columna es contexto, no identidad. Un contacto es de un deudor y de un
+-- hilo; el crédito al que se refiere puede no existir, puede haberse cerrado, o
+-- pueden ser tres a la vez. La evidencia ante la SIC se cuenta por **persona**
+-- —la Ley 2300 protege la tranquilidad del deudor, no la de cada crédito— así
+-- que `contactosDelDeudor` ya consultaba por `deudor_id`.
+--
+-- La clave foránea compuesta (tenant_id, obligacion_id) sigue valiendo: con
+-- MATCH SIMPLE, que es el default, una columna en NULL satisface la restricción.
+ALTER TABLE contactos ALTER COLUMN obligacion_id DROP NOT NULL;

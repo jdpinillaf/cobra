@@ -1,7 +1,9 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { Acto } from './Escena'
+import { IconosFlujo } from './IconosFlujo'
 
 /**
  * Las tres puertas que hay que pasar antes de bajar three.js.
@@ -41,6 +43,24 @@ export function Hero3D() {
   const [estatico, setEstatico] = useState(false)
   const ancla = useRef<HTMLDivElement>(null)
 
+  /**
+   * El acto que corre ahora, y qué vuelta del bucle va.
+   *
+   * La escena lo avisa seis veces por ciclo. `vuelta` sube cada vez que empieza
+   * una nube nueva, y se usa como `key` de la capa de iconos: remontarla es lo
+   * que hace que sus animaciones vuelvan a correr en cada vuelta.
+   */
+  const [acto, setActo] = useState<Acto | null>(null)
+  const [vuelta, setVuelta] = useState(0)
+
+  const alCambiarActo = useCallback((nuevo: Acto) => {
+    setActo(nuevo)
+    if (nuevo === 'nube') setVuelta((v) => v + 1)
+  }, [])
+
+  // Los iconos entran con el recorrido y se quedan hasta que arranca otra vuelta.
+  const conIconos = estatico || acto === 'recorrido' || acto === 'reposo'
+
   useEffect(() => {
     const ancho = window.matchMedia(ANCHO_MINIMO)
     const movimiento = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -77,9 +97,12 @@ export function Hero3D() {
       ref={ancla}
       aria-hidden
       /* El alto se reserva siempre: el hero no puede saltar cuando entra el chunk. */
-      className="h-[26rem] w-full"
+      className="relative h-[26rem] w-full"
     >
-      {montar ? <Escena corriendo={visible} estatico={estatico} /> : null}
+      {montar ? (
+        <Escena corriendo={visible} estatico={estatico} alCambiarActo={alCambiarActo} />
+      ) : null}
+      {montar && conIconos ? <IconosFlujo key={vuelta} estatico={estatico} /> : null}
     </div>
   )
 }
