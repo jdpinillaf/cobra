@@ -5,6 +5,7 @@ import { registrarContacto } from '@/repo/cobranza/contactos'
 import { expedienteDeConversacion, pausarAgente } from '@/repo/cobranza/conversaciones'
 import { plantillasAprobadas, ventanaDe } from '@/repo/cobranza/ventanas'
 import type { Db } from '@/repo/db'
+import { credencialesWhatsApp } from '@/repo/tenants'
 import { decidirEnvioManual } from './envio-manual'
 
 /**
@@ -85,7 +86,8 @@ export async function enviarManual(
     ? interpolar(plantilla.cuerpo, params.datos.variables ?? [])
     : (params.datos.texto ?? '')
 
-  const proveedor = params.proveedor ?? crearProveedores().whatsapp
+  const proveedor =
+    params.proveedor ?? crearProveedores({ tenant: await credencialesWhatsApp(db, params.tenantId) }).whatsapp
   const enviado = await proveedor.enviar({
     para: expediente.telefono,
     canal: 'whatsapp',

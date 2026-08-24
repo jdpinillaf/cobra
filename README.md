@@ -82,16 +82,21 @@ Configuración: `NEXT_PUBLIC_CALENDLY_URL` activa el embed de agendamiento. Sin 
 
 Nada de esto puede salir al navegador. Sin las variables, el webhook responde 503 y la factory cae a `ProveedorSimulado`: hay que pedir explícitamente hablar con la red.
 
+**El entorno decide si se habla con la red; el cliente decide desde qué número.** Son dos preguntas distintas. `tenants.phone_number_id`, `waba_id` y `wa_token_cifrado` mandan sobre las variables de abajo, que quedan como conveniencia de desarrollo y como lo que se usa mientras un cliente todavía no cargó lo suyo. Pero sin `PROVEEDOR_WHATSAPP=meta` no sale nada aunque el cliente tenga sus credenciales: cargarle el número no puede encender el motor sin querer.
+
 | Variable | Para qué |
 |---|---|
 | `PROVEEDOR_WHATSAPP=meta` | Activa el envío real. Sin ella, simulado |
-| `META_PHONE_NUMBER_ID` | Id del número dentro del WABA del cliente. No es el teléfono |
-| `META_WABA_ID` | WhatsApp Business Account del cliente |
-| `META_ACCESS_TOKEN` | System User permanente del Business Manager **del cliente** |
-| `META_APP_SECRET` | Firma `X-Hub-Signature-256` de los webhooks |
-| `META_TOKEN_VERIFICACION` | Handshake `GET` de suscripción |
+| `META_APP_SECRET` | Firma `X-Hub-Signature-256` de los webhooks. Es de **nuestra** App, no del cliente |
+| `META_TOKEN_VERIFICACION` | Handshake `GET` de suscripción. También de la App |
+| `SECRETO_CREDENCIALES` | Cifra el token de WhatsApp en reposo (`src/auth/cifrado.ts`, AES-256-GCM) |
+| `META_PHONE_NUMBER_ID` | Id del número dentro del WABA. No es el teléfono, y **es** el remitente. Solo si el tenant no lo tiene |
+| `META_WABA_ID` | WhatsApp Business Account. Solo si el tenant no lo tiene |
+| `META_ACCESS_TOKEN` | System User del Business Manager del cliente. Solo si el tenant no lo tiene |
 | `PROVEEDOR_SMS=twilio` | Activa el fallback real de SMS |
-| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_SHORT_CODE` | SMS. El remitente tiene que ser short code, no un celular |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_SHORT_CODE` | SMS. El remitente tiene que ser short code, no un celular. **No se parte por tenant**: el short code es de Ponox |
+
+El token del cliente se carga con `guardarCredencialesWhatsApp` (`src/repo/tenants.ts`), que lo cifra. Un `UPDATE` a mano sobre `wa_token_cifrado` lo dejaría en claro, y por eso la lectura lo rechaza a propósito en vez de usarlo en silencio.
 
 Con implementaciones 1:1 **no hace falta ser Tech Provider ni montar Embedded Signup**: basta un System User sobre la WABA del propio cliente. El programa de partners solo aplica a onboarding self-serve a escala.
 
@@ -127,11 +132,6 @@ contrato. Hoy fallan a propósito: `crearSistema()` está sin implementar.
 
 Pendiente en cobranza, por orden de lo que costaría descubrirlo tarde:
 
-- **Un solo número remitente para todos los clientes.** El webhook resuelve el
-  tenant por `phone_number_id`, pero `crearProveedores` arma el remitente con
-  `META_PHONE_NUMBER_ID` del entorno. Con dos clientes vivos en la misma WABA, al
-  deudor del segundo le contesta el número del primero. El arreglo son
-  credenciales por tenant.
 - **El circuito del pago no se cierra.** `src/payments/wompi.ts` tiene checkout,
   checksum del webhook e interpretación de eventos, con tests, pero no existe la
   ruta que reciba ese webhook y el link del agente apunta a `/pagar`.

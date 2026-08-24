@@ -14,6 +14,7 @@ import {
 } from '@/repo/cobranza/contexto'
 import { ventanaDe } from '@/repo/cobranza/ventanas'
 import type { Db } from '@/repo/db'
+import { credencialesWhatsApp } from '@/repo/tenants'
 
 /**
  * El encendido del motor.
@@ -153,7 +154,10 @@ export async function ejecutarPaso(
     categoriaDePlantilla: 'utility',
   })
 
-  const proveedores = params.proveedores ?? crearProveedores()
+  // Mismo motivo que en `responder.ts`: el número que ve el deudor es el de su
+  // acreedor, no el que quedó en las variables del despliegue.
+  const proveedores =
+    params.proveedores ?? crearProveedores({ tenant: await credencialesWhatsApp(db, tenantId) })
   const cuerpo = `Recordatorio del crédito ${contexto.obligacion.numeroCredito}.`
   const enviado = await proveedores[canal].enviar({
     para: contexto.deudor.telefonos[0] ?? '',

@@ -65,14 +65,23 @@ Un turno del modelo tardó **18 segundos** en la prueba local. Para WhatsApp es
 mucho: conviene medirlo en la pantalla de Consumo antes de encenderlo con un
 cliente.
 
-### Dos límites del agente que hoy no se ven
+### El remitente sale del cliente
 
-**Un solo número remitente para todos los clientes.** El webhook resuelve de
-qué cliente es cada mensaje por `tenants.phone_number_id`, pero
-`crearProveedores` arma el proveedor con `META_PHONE_NUMBER_ID` del entorno, y
-ese id **es** el remitente. Con un solo cliente no se nota. Con dos vivos en la
-misma WABA, el agente le contestaría al deudor del segundo desde el número del
-primero. El arreglo son credenciales por tenant, no una línea.
+`crearProveedores({ tenant })` arma el proveedor con `phone_number_id`,
+`waba_id` y `wa_token_cifrado` de la fila del cliente. Las variables del entorno
+quedan de respaldo, para desarrollo y para el cliente que todavía no cargó lo
+suyo. `META_APP_SECRET` y `META_TOKEN_VERIFICACION` siguen siendo del entorno
+porque son de la **App** de Meta, que es una sola.
+
+Hace falta `SECRETO_CREDENCIALES` para descifrar el token:
+
+    openssl rand -hex 32 | vercel env add SECRETO_CREDENCIALES production --yes
+
+El token se carga con `guardarCredencialesWhatsApp` (`src/repo/tenants.ts`),
+nunca con un `UPDATE` a mano: la lectura rechaza un token sin cifrar en vez de
+usarlo en silencio.
+
+### Un límite del agente que todavía no se ve
 
 **En el camino del agente, RLS no aplica.** El turno corre en `after()`, fuera
 de la transacción de `conTenant` — a propósito, porque esperar al modelo con
