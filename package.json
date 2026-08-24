@@ -28,6 +28,7 @@
     "@react-three/fiber": "^9.7.0",
     "ai": "^7.0.58",
     "libphonenumber-js": "^1.13.10",
+    "mailauth": "^5.0.2",
     "next": "16.3.0",
     "papaparse": "^5.5.4",
     "pg": "^8.23.0",
