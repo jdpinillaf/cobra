@@ -1,0 +1,16 @@
+name = "ponox-correo"
+main = "index.js"
+compatibility_date = "2026-08-01"
+
+# La lista de alias vigentes. Una clave por alias; el valor no se lee, solo su
+# existencia. Se puebla desde `scripts/provisionar.mts` al dar de alta un cliente.
+[[kv_namespaces]]
+binding = "ALIAS"
+id = "<pendiente: crear con `wrangler kv namespace create ALIAS`>"
+
+[vars]
+API_URL = "https://ponox.co/api/correo/entrante"
+
+# `API_SECRETO` NO va acá. Va como secreto:
+#   wrangler secret put API_SECRETO
+# y el mismo valor como `CORREO_SECRETO` en la app.

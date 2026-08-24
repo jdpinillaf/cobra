@@ -97,6 +97,68 @@ export interface TenantResumen {
   estado: string
 }
 
+export interface ConfigConciliacion {
+  id: string
+  nombre: string
+  /** Últimos cuatro de la cuenta de recaudo. Valida que el pago fue a la cuenta correcta. */
+  cuentaUltimos4: string | null
+  cuentaTitular: string | null
+  /** Contra quién se exige la firma. Sale de la fila, nunca de una constante. */
+  dkimDominioEsperado: string
+  /** Direcciones desde las que el banco escribe. Bancolombia ha usado varias. */
+  remitentes: Array<{ direccion: string; dkimDominioEsperado: string }>
+}
+
+/**
+ * El comerciante dueño de un alias de correo.
+ *
+ * El alias es el discriminador de la ingesta, igual que `phone_number_id` lo es
+ * del webhook. Y es impredecible a propósito —`k7f2mq9xz3@in.ponox.co`, no
+ * `cliente07@`—: el buzón es catch-all y está abierto a internet, así que un
+ * alias adivinable deja que cualquiera llene la base o intente colar un aviso
+ * falso.
+ *
+ * Corre **fuera** de `conTenant`, porque justamente sirve para averiguar qué
+ * tenant es. Es el mismo caso que `tenantPorNumero`.
+ */
+export async function tenantPorAlias(
+  db: Db,
+  alias: string,
+): Promise<ConfigConciliacion | null> {
+  const [fila] = await db.query<{
+    id: string
+    nombre: string
+    cuenta_ultimos4: string | null
+    cuenta_titular: string | null
+    dkim_dominio_esperado: string
+  }>(
+    `SELECT id, nombre, cuenta_ultimos4, cuenta_titular, dkim_dominio_esperado
+       FROM tenants
+      WHERE lower(email_alias) = lower($1) AND estado IN ('verificando','activo')`,
+    [alias],
+  )
+  if (!fila) return null
+
+  const remitentes = await db.query<{ direccion: string; dkim_dominio_esperado: string }>(
+    `SELECT direccion, dkim_dominio_esperado
+       FROM tenant_email_senders
+      WHERE tenant_id = $1 AND activo`,
+    [fila.id],
+  )
+
+  return {
+    id: fila.id,
+    nombre: fila.nombre,
+    cuentaUltimos4: fila.cuenta_ultimos4,
+    cuentaTitular: fila.cuenta_titular,
+    dkimDominioEsperado: fila.dkim_dominio_esperado,
+    remitentes: remitentes.map((r) => ({
+      direccion: r.direccion.toLowerCase(),
+      dkimDominioEsperado: r.dkim_dominio_esperado,
+    })),
+  }
+}
+
 /** El tenant dueño de un número, que es como el webhook sabe de quién es cada evento. */
 export async function tenantPorNumero(
   db: Db,
