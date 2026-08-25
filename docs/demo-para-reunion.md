@@ -305,3 +305,33 @@ otro lado que no sean los archivos.
 Con tres o más fuentes dice además **cuál se desvió**: si dos coinciden y una
 no, la que no es la que hay que corregir. Con dos que difieren no acusa a
 nadie, porque no hay a quién creerle.
+
+---
+
+## 9. Desplegado
+
+Producción: `https://cobra-qe1tlyzxa-jesus-pinillas-projects.vercel.app`, pública
+y sin muro de autenticación. Se entra a la consola con el usuario del cliente
+(`pnpm crear-usuario` imprime la clave una sola vez).
+
+```bash
+pnpm build && vercel --prod --yes
+CLAVE_CONSOLA=... pnpm grabar-producto        # el recorrido completo, en video
+```
+
+Lo que **no** está desplegado, a propósito: la demo del agente (`/demo`,
+`/pagar`) queda fuera por `.vercelignore`, y el servidor de voz corre aparte
+porque Vercel no expone el evento `upgrade` que Twilio Media Streams necesita.
+
+Tres cosas que costaron una tarde y conviene no volver a descubrir:
+
+1. **`.vercelignore` excluye `src/app/api/demo` entero.** Una ruta nueva puesta
+   ahí abajo anda en local y devuelve 404 en producción, sin ningún aviso.
+2. **Una función de Vercel no puede consultarse a sí misma por HTTP.** Devuelve
+   404 desde adentro y 200 desde afuera, con el origen bien calculado. Por eso
+   los portales de demostración corren en proceso.
+3. **`public/llamadas` va al repo.** Vercel construye desde git: ignorarlo deja
+   el sitio sin los audios que la pantalla de Briefing reproduce.
+
+Y una menor: después de mover o borrar una ruta hay que `rm -rf .next/types`, o
+`pnpm typecheck` falla por un módulo que ya no existe.

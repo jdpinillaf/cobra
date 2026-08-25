@@ -25,7 +25,8 @@
     "voz-probar": "tsx scripts/voz-probar.mts",
     "voz-servidor": "tsx scripts/voz-servidor.mts",
     "marcar": "tsx scripts/marcar.mts",
-    "voz-grabar": "tsx scripts/voz-grabar.mts"
+    "voz-grabar": "tsx scripts/voz-grabar.mts",
+    "grabar-producto": "tsx scripts/grabar-producto.mts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.36",
