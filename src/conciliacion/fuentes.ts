@@ -13,7 +13,7 @@
 import { detectarFormato, leerArchivo } from '@/ingest/cargar'
 import type { Fila } from './cruce'
 
-export type TipoFuente = 'archivo' | 'api' | 'navegador' | 'sheets'
+export type TipoFuente = 'archivo' | 'api' | 'navegador' | 'sheets' | 'demostracion'
 
 export interface Extraccion {
   encabezados: string[]
@@ -129,6 +129,44 @@ export class FuenteNavegador implements FuenteDeDatos {
       `${this.nombre}: ${this.config.portal} no tiene API y todavía no está el recorrido con navegador. ` +
         'Mientras tanto, súbalo como archivo exportado.',
     )
+  }
+}
+
+/**
+ * Un portal que corre en el mismo proceso.
+ *
+ * Existe porque los portales de demostración son código nuestro, y en Vercel
+ * una función **no puede consultarse a sí misma** por HTTP: la petición a la
+ * URL del propio despliegue devuelve 404 aunque desde afuera responda 200.
+ * Pelear ese round-trip agrega un modo de falla en el lugar exacto donde el
+ * cliente va a estar mirando, y no demuestra nada: lo que hay que demostrar es
+ * que el adaptador entiende la forma rara del portal.
+ *
+ * Por eso pasa por el **mismo** `camino` y el mismo `mapeo` que `FuenteApi`.
+ * Lo único que no ocurre es el viaje por la red.
+ */
+export class FuentePortalLocal implements FuenteDeDatos {
+  readonly tipo = 'demostracion' as const
+
+  constructor(
+    readonly clave: string,
+    readonly nombre: string,
+    private readonly config: {
+      responder(): unknown
+      camino?: string
+      mapeo?: Record<string, string>
+    },
+  ) {}
+
+  async obtener(): Promise<Extraccion> {
+    const crudas = extraerArreglo(this.config.responder(), this.config.camino)
+    const filas = crudas.map((f) => aplicarMapeo(f, this.config.mapeo))
+    return {
+      encabezados: filas.length > 0 ? Object.keys(filas[0]) : [],
+      filas,
+      obtenidoEn: new Date().toISOString(),
+      procedencia: `${this.nombre} · portal de demostración`,
+    }
   }
 }
 

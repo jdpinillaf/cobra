@@ -97,7 +97,15 @@ export function Portales() {
                 {r.fuentes.map((f) => (
                   <tr key={f.clave} className="border-b border-rule">
                     <Celda>{f.nombre}</Celda>
-                    <Celda suave>{f.tipo === 'api' ? 'API' : f.tipo === 'archivo' ? 'Archivo' : f.tipo}</Celda>
+                    <Celda suave>
+                      {f.tipo === 'api'
+                        ? 'API'
+                        : f.tipo === 'archivo'
+                          ? 'Archivo'
+                          : f.tipo === 'demostracion'
+                            ? 'Portal de demostración'
+                            : f.tipo}
+                    </Celda>
                     <Celda suave>{f.procedencia}</Celda>
                     <Celda num>{numero(f.filas)}</Celda>
                   </tr>

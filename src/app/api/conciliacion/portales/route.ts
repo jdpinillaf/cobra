@@ -1,6 +1,7 @@
 import { requerirSesion } from '@/auth/actual'
 import { cruzarVarias, detectarColumnas, type ResultadoMultiple } from '@/conciliacion/cruce'
-import { FuenteApi, FuenteArchivo, type FuenteDeDatos } from '@/conciliacion/fuentes'
+import { FuenteArchivo, FuentePortalLocal, type FuenteDeDatos } from '@/conciliacion/fuentes'
+import { comoPortalBanco, comoPortalContable, generarCarteraDemo } from '@/demo/portales'
 import { verificar, type Veredicto } from '@/conciliacion/verificador'
 
 /**
@@ -31,37 +32,28 @@ export async function POST(request: Request): Promise<Response> {
   const cuerpo = await request.formData()
 
   /**
-   * De dónde se consulta a los propios portales de demostración.
-   *
-   * Tres fuentes, en este orden, y las tres hacen falta:
-   *
-   * 1. `VERCEL_URL` — la forma documentada de que una función se referencie a sí
-   *    misma. `request.url` trae la URL **interna** de la invocación, y usarla
-   *    daba 404 en producción mientras en local andaba bien: local no tiene
-   *    proxy y las dos coinciden.
-   * 2. `x-forwarded-host` — para cualquier otro proxy.
-   * 3. `request.url` — el caso local, sin nada delante.
-   */
-  const host = process.env.VERCEL_URL ?? request.headers.get('x-forwarded-host') ?? request.headers.get('host')
-  const protocolo = process.env.VERCEL_URL ? 'https' : (request.headers.get('x-forwarded-proto') ?? 'http')
-  const origen = host ? `${protocolo}://${host}` : new URL(request.url).origin
-
-  /**
    * Los dos portales de demostración.
    *
    * Cada uno devuelve su respuesta con **su** forma —uno cuelga el arreglo de
-   * `data` con campos en inglés, el otro de `resultado.movimientos` con montos
-   * como texto—, que es lo que hacen los portales de verdad. Si los dos
-   * devolvieran lo que el cruce espera, esto no probaría que el adaptador sirve.
+   * `data` con campos en inglés, el otro de `resultado.movimientos` con los
+   * montos como texto—, que es lo que hacen los portales de verdad. El
+   * adaptador que los normaliza es el mismo que va a usar un Siigo o un
+   * Bancolombia; lo único que no ocurre acá es el viaje por la red, porque
+   * en Vercel una función no puede consultarse a sí misma por HTTP.
+   *
+   * Las rutas `/api/conciliacion/portal/*` existen igual y responden lo mismo:
+   * sirven para mostrarle al cliente qué se consume.
    */
+  const cartera = generarCarteraDemo()
+
   const fuentes: FuenteDeDatos[] = [
-    new FuenteApi('contable', 'Portal contable', {
-      url: `${origen}/api/demo/portal/contable`,
+    new FuentePortalLocal('contable', 'Portal contable', {
+      responder: () => comoPortalContable(cartera.contable),
       camino: 'data',
       mapeo: { docNumber: 'referencia', total: 'valor', customerName: 'cliente', issueDate: 'fecha' },
     }),
-    new FuenteApi('banco', 'Portal del banco', {
-      url: `${origen}/api/demo/portal/banco`,
+    new FuentePortalLocal('banco', 'Portal del banco', {
+      responder: () => comoPortalBanco(cartera.banco),
       camino: 'resultado.movimientos',
       mapeo: { Referencia: 'referencia', Valor: 'valor', FechaMovimiento: 'fecha' },
     }),
@@ -93,7 +85,7 @@ export async function POST(request: Request): Promise<Response> {
         // hora de adivinar cuál de los tres candidatos se eligió.
         fallas.push({
           fuente: f.nombre,
-          motivo: `${error instanceof Error ? error.message : String(error)} (origen: ${origen})`,
+          motivo: error instanceof Error ? error.message : String(error),
         })
       }
     }),
