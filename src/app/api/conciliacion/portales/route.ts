@@ -29,7 +29,18 @@ export async function POST(request: Request): Promise<Response> {
   await requerirSesion()
 
   const cuerpo = await request.formData()
-  const origen = new URL(request.url).origin
+
+  /**
+   * El origen sale de las cabeceras del proxy, no de `request.url`.
+   *
+   * En Vercel `request.url` trae la URL **interna** con la que la función fue
+   * invocada, así que consultar los portales contra ella devolvía 404 en
+   * producción mientras en local andaba perfecto: local no tiene proxy y las
+   * dos coinciden. `x-forwarded-host` es la que ve el navegador.
+   */
+  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host')
+  const protocolo = request.headers.get('x-forwarded-proto') ?? 'https'
+  const origen = host ? `${protocolo}://${host}` : new URL(request.url).origin
 
   /**
    * Los dos portales de demostración.
