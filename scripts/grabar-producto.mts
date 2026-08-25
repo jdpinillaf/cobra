@@ -216,4 +216,10 @@ rmSync(webm)
 rmSync(CRUDO, { recursive: true, force: true })
 for (const s of readdirSync(SALIDA).filter((f) => f.endsWith('.webm'))) rmSync(join(SALIDA, s))
 
-console.log(`\nListo: ${mp4}\n`)
+const duracion = execFileSync(
+  'ffprobe',
+  ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', mp4],
+  { encoding: 'utf8' },
+).trim()
+
+console.log(`\nListo: ${mp4}  ·  ${Math.round(Number(duracion))}s\n`)
