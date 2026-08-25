@@ -47,3 +47,7 @@ next-env.d.ts
 .auditoria.jsonl
 .vitest-e2e.json
 .pglite/
+
+# Ojo: `public/llamadas` y `demo/` **sí** van al repo, aunque sean generados.
+# Vercel construye desde git, así que ignorarlos dejaría el sitio desplegado sin
+# los audios que la pantalla de Briefing reproduce. Pesan unos 4 MB entre todos.

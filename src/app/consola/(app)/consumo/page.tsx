@@ -183,6 +183,26 @@ export default async function PaginaConsumo({
         </section>
       )}
 
+      {resumen.llamadas > 0 && (
+        <section className="mt-8">
+          <p className="marca-seccion">La voz, aparte</p>
+          <dl className="mt-3 flex flex-wrap gap-x-10 gap-y-4 border-y border-rule py-4">
+            <Metrica titulo="Llamadas">{numero(resumen.llamadas)}</Metrica>
+            <Metrica titulo="Minutos facturados">{numero(resumen.minutosVoz)}</Metrica>
+            <Metrica titulo="Costo">{cop(resumen.costoVozCop)}</Metrica>
+            <Metrica titulo="Por minuto">
+              {resumen.minutosVoz > 0 ? cop(resumen.costoVozCop / resumen.minutosVoz) : '—'}
+            </Metrica>
+          </dl>
+          <p className="mt-3 max-w-prose text-sm text-ink-faint">
+            Las llamadas <strong className="font-medium text-ink-soft">no salen del cupo de
+            mensajes</strong>: una llamada cuesta unas trescientas veces un WhatsApp, y un
+            mensaje dentro de la ventana de 24 h no cuesta nada. Twilio factura el minuto
+            redondeado hacia arriba, así que una de 1:05 cuenta como dos.
+          </p>
+        </section>
+      )}
+
       {cupo && (
         <section className="mt-8">
           <p className="marca-seccion">Contra lo contratado</p>
