@@ -12,6 +12,9 @@ import { MARCA } from '@/lib/marca'
 const SECCIONES = [
   { href: '/consola/cartera', label: 'Cartera', listo: true },
   { href: '/consola/conversaciones', label: 'Conversaciones', listo: true },
+  { href: '/consola/llamadas', label: 'Llamadas', listo: true },
+  { href: '/consola/briefing', label: 'Briefing', listo: true },
+  { href: '/consola/conciliacion', label: 'Conciliación', listo: true },
   { href: '/consola/consumo', label: 'Consumo', listo: true },
   { href: '/consola/cumplimiento', label: 'Cumplimiento', listo: false },
 ]

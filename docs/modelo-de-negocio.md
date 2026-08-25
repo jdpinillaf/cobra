@@ -1,4 +1,4 @@
-# Modelo de negocio — Ponos
+# Modelo de negocio — Ponox
 
 > Aprobado 2026-08-10. Este documento sostiene la copia de la landing y las decisiones de producto. Si algo aquí cambia, la landing y `src/domain/planes.ts` cambian con él.
 

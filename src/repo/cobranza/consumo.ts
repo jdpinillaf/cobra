@@ -71,8 +71,18 @@ export function bordesDelMes(mes: string): Periodo {
 export interface ResumenConsumo {
   /** Lo que hay que pagarle a los proveedores. */
   costoCop: number
-  /** Entrantes y salientes no bloqueados: lo que consume cupo. */
+  /**
+   * Entrantes y salientes no bloqueados: lo que consume cupo.
+   *
+   * **Sin la voz.** Una llamada cuesta unas 300 veces un WhatsApp, así que no
+   * sale del mismo cupo: si contara acá, un cliente gastaría su plan entero en
+   * veinte llamadas y le cobraríamos COP 45 por algo que costó COP 772.
+   */
   mensajesQueCuentan: number
+  /** Llamadas del periodo y lo que costaron, aparte del cupo de mensajes. */
+  llamadas: number
+  minutosVoz: number
+  costoVozCop: number
   /** Salientes que la ley impidió. No cuestan ni consumen, pero son la evidencia. */
   bloqueados: number
   /** Conversaciones distintas con actividad en el periodo. */
@@ -103,7 +113,7 @@ export async function resumenDelPeriodo(
 ): Promise<ResumenConsumo> {
   // Las tres consultas son independientes y ninguna alimenta a la siguiente.
   // En serie eran tres viajes para pintar una sola pantalla.
-  const [filasTotales, porCategoria, porCanal] = await Promise.all([
+  const [filasTotales, porCategoria, porCanal, voz] = await Promise.all([
     db.query<{
       costo: string | null
       cuentan: string
@@ -111,7 +121,7 @@ export async function resumenDelPeriodo(
       conversaciones: string
     }>(
       `SELECT COALESCE(SUM(costo_cop), 0)                                   AS costo,
-              COUNT(*) FILTER (WHERE resultado <> 'bloqueado')              AS cuentan,
+              COUNT(*) FILTER (WHERE resultado <> 'bloqueado' AND canal <> 'voz') AS cuentan,
               COUNT(*) FILTER (WHERE resultado =  'bloqueado')              AS bloqueados,
               -- Filtrado igual que las dos de arriba. Sin el FILTER, un deudor
               -- con opt-out generaba conversación y contacto bloqueado y nada
@@ -150,12 +160,34 @@ export async function resumenDelPeriodo(
         ORDER BY costo DESC`,
       [tenantId, periodo.desde, periodo.hasta],
     ),
+
+    /**
+     * Los minutos salen de `llamadas`, no de `contactos`.
+     *
+     * `contactos` guarda el costo total de la llamada pero no su duración, y
+     * la voz se factura por minuto **redondeado hacia arriba**: sumar segundos
+     * y dividir daría menos de lo que cobra Twilio.
+     */
+    db.query<{ n: string; minutos: string | null; costo: string | null }>(
+      `SELECT COUNT(*)                                                   AS n,
+              COALESCE(SUM(CEIL(GREATEST(duracion_seg, 0) / 60.0)), 0)   AS minutos,
+              COALESCE(SUM(costo_telefonia_cop + costo_ia_cop), 0)       AS costo
+         FROM llamadas
+        WHERE tenant_id = $1 AND iniciada_en >= $2 AND iniciada_en < $3
+          AND estado <> 'en_curso'`,
+      [tenantId, periodo.desde, periodo.hasta],
+    ),
   ])
   const totales = filasTotales[0]
+
+  const llamadas = voz[0]
 
   return {
     costoCop: num(totales.costo),
     mensajesQueCuentan: Number(totales.cuentan),
+    llamadas: Number(llamadas?.n ?? 0),
+    minutosVoz: Number(llamadas?.minutos ?? 0),
+    costoVozCop: num(llamadas?.costo),
     bloqueados: Number(totales.bloqueados),
     conversaciones: Number(totales.conversaciones),
     porCategoria: porCategoria.map((f) => ({

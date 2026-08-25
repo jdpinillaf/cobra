@@ -13,6 +13,22 @@ export const Canal = z.enum(['whatsapp', 'sms'])
 export type Canal = z.infer<typeof Canal>
 
 /**
+ * Por dónde ocurrió un contacto. Más ancho que `Canal`, a propósito.
+ *
+ * Una llamada deja evidencia y consume el cupo de frecuencia de la Ley 2300
+ * igual que un mensaje, así que tiene que poder ser un `Contacto`. Pero no se
+ * envía con un `ChannelProvider` ni se cotiza por mensaje: meterla en `Canal`
+ * obligaría a `crearProveedores` a devolver un proveedor de voz que implemente
+ * `enviar(MensajeSaliente)` —una llamada no es un mensaje saliente— y mandaría
+ * la voz a `TARIFA_TWILIO_SMS`, que lanza.
+ *
+ * La regla, entonces: `Canal` es por dónde se **envía** un mensaje;
+ * `CanalContacto` es por dónde se **tocó** a la persona.
+ */
+export const CanalContacto = z.enum([...Canal.options, 'voz'])
+export type CanalContacto = z.infer<typeof CanalContacto>
+
+/**
  * Ley 2300 art. 3: el contacto directo solo procede con el deudor principal,
  * codeudor o deudor solidario. Una `referencia` nunca puede ser destinataria;
  * el guard de compliance la bloquea sin excepción.
@@ -44,7 +60,7 @@ export type Consentimiento = z.infer<typeof Consentimiento>
  * Lo que fije aquí restringe la ventana legal, nunca la amplía.
  */
 export const PreferenciaContacto = z.object({
-  canal: Canal.nullable().default(null),
+  canal: CanalContacto.nullable().default(null),
   /** 1 = lunes … 6 = sábado. El domingo nunca es válido, ni siquiera si lo pide. */
   diaSemana: z.number().int().min(1).max(6).nullable().default(null),
   horaDesde: z.number().int().min(0).max(23).nullable().default(null),
@@ -126,7 +142,7 @@ export const Contacto = z.object({
   clienteId: z.string(),
   obligacionId: z.string(),
   deudorId: z.string(),
-  canal: Canal,
+  canal: CanalContacto,
   direccion: z.enum(['saliente', 'entrante']),
   /** ISO 8601 con offset. Siempre se evalúa contra hora de Bogotá. */
   timestamp: z.string(),

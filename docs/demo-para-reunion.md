@@ -44,21 +44,47 @@ en el teléfono.
 ### Grabar el video
 
 ```bash
+nvm use                                # Node 22: con 20 no arranca nada
 pnpm build && PORT=3100 pnpm start     # producción: sin el indicador de dev
 pnpm grabar                            # → video/*.mp4
+pnpm grabar -- --url http://localhost:3200   # si 3100 está ocupado
 ```
 
-Salen tres archivos: el recorrido completo, el checkout solo, y la rama de
-escalamiento. El navegador corre sin cabeza, así que en el video no aparece
-barra de direcciones, ni escritorio, ni ninguna otra ventana.
+Salen **siete clips**, uno por caso, numerados en el orden en que conviene
+mostrarlos:
 
-Ojo: hay que grabar contra `pnpm start`, no `pnpm dev`. El servidor de
-desarrollo pinta un indicador flotante de Next en la esquina que se cuela en la
-toma.
+| Archivo | Qué muestra |
+|---|---|
+| `ponox-01-negociacion.mp4` | El arco completo: cruza la cartera, negocia dentro de rango, manda el link y la confirmación del pago **llega sola** |
+| `ponox-02-pago.mp4` | El checkout, solo |
+| `ponox-03-escalamiento.mp4` | Pide 12 cuotas. Fuera de lo autorizado: el agente no regatea, escala |
+| `ponox-04-numero-errado.mp4` | «Yo no soy Jorge». Marca el número y se calla |
+| `ponox-05-baja.mp4` | Pide la baja. Se despide una vez y no vuelve a escribir |
+| `ponox-06-ya-pague.mp4` | «Ya pagué eso». No confirma nada: suspende la gestión y escala |
+| `ponox-07-landing.mp4` | La landing con el hero 3D y dos vueltas de la demo animada |
 
-Para grabar se usa `/demo?limpio=1`, que oculta los botones del guion y deja
-solo la barra de escritura. Con `/demo` a secas quedan los botones, que es lo
-que sirve para presentar en vivo.
+Los tres del medio terminan con un mensaje del deudor que el agente **no
+contesta**. Ese plano es el que hay que dejar correr: cualquiera muestra lo que
+el agente sí manda; lo que el cliente pregunta es qué pasa cuando el deudor dice
+que no.
+
+El navegador corre sin cabeza, así que en el video no aparece barra de
+direcciones, ni escritorio, ni ninguna otra ventana.
+
+Tres cosas que cuestan una regrabada si se olvidan:
+
+- Hay que grabar contra `pnpm start`, no `pnpm dev`. El servidor de desarrollo
+  pinta un indicador flotante de Next en la esquina que se cuela en la toma.
+- Se graba `/demo?limpio=1`, que oculta los botones del guion y deja solo la
+  barra de escritura. Con `/demo` a secas quedan los botones, que es lo que
+  sirve para presentar en vivo.
+- Si quedó un `next start` viejo del repo escuchando en el puerto, sirve un
+  build vencido y `/demo` responde 404. Se ve en el primer clip y no antes.
+
+El script imprime el `estadoCaso` con el que quedó cada conversación. En los
+clips 03, 04 y 05 tiene que decir `humano`: es lo que confirma que el agente
+soltó la conversación de verdad y que el silencio del final no es el modelo
+tardando.
 
 ---
 
@@ -186,3 +212,126 @@ de WhatsApp.
 scheduler que dispare la cadencia diaria, la ruta de ingesta con su UI, y la ruta
 del webhook de la pasarela real. El código que va adentro de cada una ya existe;
 falta el cableado.
+
+---
+
+## 7. El canal de voz
+
+El agente llama por teléfono, negocia con las mismas seis herramientas y la
+llamada queda en `/consola/llamadas` con transcripción, resumen, costo y lo que
+ejecutó.
+
+### Sin cuentas de nada
+
+```bash
+pnpm llamar "+573001234567"                       # guion determinista
+pnpm llamar "+573001234567" --guion escala        # pide 12 cuotas
+pnpm llamar "+573001234567" --personaje regatea   # dos modelos improvisando
+```
+
+Escribe filas reales, ejecuta las herramientas reales y produce un link de pago
+con referencia válida. Lo único de mentira es que nadie pronunció las frases.
+Exige `tenants.modo_demo` y la fila queda con `proveedor = 'simulado'`: una
+llamada inventada no puede contar como evidencia ante la SIC.
+
+**Los personajes son la prueba que vale.** Con `--personaje`, el deudor lo actúa
+un modelo y cada corrida sale distinta: `negocia`, `regatea`, `no_es`,
+`ya_pago`, `pide_baja`. Fueron esas corridas las que encontraron los dos bugs
+más caros del canal —el agente quedándose mudo al agotar los pasos, y la baja
+que nadie registraba—, que un guion fijo nunca habría mostrado.
+
+### Con cuentas
+
+```
+VOZ=deepgram      DEEPGRAM_API_KEY=…   VOZ_VOZ=aura-2-…-es
+TELEFONIA=twilio  TWILIO_ACCOUNT_SID=…  TWILIO_AUTH_TOKEN=…  TWILIO_NUMERO_VOZ=+1…
+VOZ_URL_PUBLICA=https://….ngrok.app
+```
+
+Twilio en modo trial **solo llama a números verificados** y antepone un mensaje
+grabado: verificá tu celular apenas abras la cuenta, no a las ocho de la mañana.
+
+### Lo que cuesta, y por qué se cobra aparte
+
+| Duración | Costo real |
+|---|---|
+| 1 min | COP 461 |
+| 1,5 min | COP 772 |
+| 2 min | COP 922 |
+
+Un WhatsApp dentro de la ventana de servicio vale **cero** y una plantilla
+`utility` COP 3,2. La voz cuesta unas 300 veces más, así que **no sale del cupo
+de mensajes**: van 100 minutos incluidos y el excedente a COP 1.500/min. A 25
+llamadas diarias, meterla en la mensualidad se comería el plan Pequeña entero.
+
+Tres cosas de la factura que no están en ninguna tabla de tarifas:
+
+1. **Twilio redondea al minuto hacia arriba.** Una llamada de 1:05 factura dos.
+2. **La no contestada no se cobra, pero el buzón sí** — contesta, la llamada
+   queda `completed` y se cobra entera. Por eso el puente cuelga si nadie habla
+   en los primeros 8 s, en vez de pagar el AMD de Twilio y sus 2 s de latencia
+   en **todas** las llamadas.
+3. **Deepgram cobra socket abierto, no conversación.** Se abre en el evento
+   `start` de Twilio, nunca al marcar: el timbrado no lo cobra Twilio pero sí
+   lo cobraría Deepgram.
+
+---
+
+## 8. Conciliación
+
+Dos modos en `/consola/conciliacion`.
+
+**Entre portales** (`?modo=portales`) — consulta el portal contable y el del
+banco por API, cruza contra el Excel que suba el asesor, y un agente explica
+cada descuadre con su causa probable y ordena por plata. Los dos portales de
+demostración devuelven formas distintas a propósito (`data` con campos en
+inglés uno, `resultado.movimientos` con montos como texto el otro), que es lo
+que hacen los portales de verdad.
+
+**Dos archivos** (`?modo=archivos`) — el export contable contra el Excel, sin
+depender de ninguna API.
+
+```bash
+# Archivos de muestra con descuadres plantados y explicables uno por uno
+demo/contable.xlsx  demo/excel-operacion.xlsx    # modo archivos
+demo/excel-portales.xlsx                          # modo portales
+```
+
+El cruce es **código, al centavo y sin modelo**: tolerancia cero, montos en
+centavos enteros, y las referencias normalizadas para que `CR-00034` y `CR00034`
+sean la misma. El agente solo explica y prioriza; ninguna cifra suya sale de
+otro lado que no sean los archivos.
+
+Con tres o más fuentes dice además **cuál se desvió**: si dos coinciden y una
+no, la que no es la que hay que corregir. Con dos que difieren no acusa a
+nadie, porque no hay a quién creerle.
+
+---
+
+## 9. Desplegado
+
+Producción: `https://cobra-qe1tlyzxa-jesus-pinillas-projects.vercel.app`, pública
+y sin muro de autenticación. Se entra a la consola con el usuario del cliente
+(`pnpm crear-usuario` imprime la clave una sola vez).
+
+```bash
+pnpm build && vercel --prod --yes
+CLAVE_CONSOLA=... pnpm grabar-producto        # el recorrido completo, en video
+```
+
+Lo que **no** está desplegado, a propósito: la demo del agente (`/demo`,
+`/pagar`) queda fuera por `.vercelignore`, y el servidor de voz corre aparte
+porque Vercel no expone el evento `upgrade` que Twilio Media Streams necesita.
+
+Tres cosas que costaron una tarde y conviene no volver a descubrir:
+
+1. **`.vercelignore` excluye `src/app/api/demo` entero.** Una ruta nueva puesta
+   ahí abajo anda en local y devuelve 404 en producción, sin ningún aviso.
+2. **Una función de Vercel no puede consultarse a sí misma por HTTP.** Devuelve
+   404 desde adentro y 200 desde afuera, con el origen bien calculado. Por eso
+   los portales de demostración corren en proceso.
+3. **`public/llamadas` va al repo.** Vercel construye desde git: ignorarlo deja
+   el sitio sin los audios que la pantalla de Briefing reproduce.
+
+Y una menor: después de mover o borrar una ruta hay que `rm -rf .next/types`, o
+`pnpm typecheck` falla por un módulo que ya no existe.

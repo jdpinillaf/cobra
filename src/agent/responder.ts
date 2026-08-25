@@ -9,6 +9,7 @@ import { registrarContacto } from '@/repo/cobranza/contactos'
 import { expedienteDeConversacion, hiloDeConversacion } from '@/repo/cobranza/conversaciones'
 import { ventanaDe } from '@/repo/cobranza/ventanas'
 import type { Db } from '@/repo/db'
+import { credencialesWhatsApp } from '@/repo/tenants'
 
 /**
  * El agente contestando de verdad, sobre la base.
@@ -151,7 +152,11 @@ export async function responderEntrante(
   const ventana = await ventanaDe(db, params.tenantId, puerto.deudor.id)
   const categoria = categoriaDelEnvio({ ventana, ahora, categoriaDePlantilla: null })
 
-  const proveedor = params.proveedor ?? crearProveedores().whatsapp
+  // El remitente sale del cliente, no del entorno: con dos clientes vivos en
+  // la misma WABA, el número del entorno le contestaría al deudor del segundo
+  // desde el número del primero.
+  const proveedor =
+    params.proveedor ?? crearProveedores({ tenant: await credencialesWhatsApp(db, params.tenantId) }).whatsapp
   const enviado = await proveedor.enviar({
     para: params.paraTelefono ?? expediente.telefono,
     canal: 'whatsapp',

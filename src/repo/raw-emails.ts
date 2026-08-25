@@ -9,6 +9,8 @@ import type { Db } from './db'
  * recibe `tenantId`, el aislamiento se rompió ahí.
  */
 
+export type Clasificacion = 'ingreso' | 'egreso' | 'seguridad' | 'otro' | 'desconocido'
+
 export interface CorreoCrudo {
   messageId: string
   crudo: string
@@ -18,6 +20,11 @@ export interface CorreoCrudo {
   dkimDomain?: string | null
   cuarentena?: boolean
   motivo?: string | null
+  clasificacion?: Clasificacion | null
+  /** `false` es el disparador de la alerta: el banco cambió la redacción. */
+  parseOk?: boolean | null
+  /** La hora que dice el aviso, no la hora en que llegó el correo. */
+  bancoAt?: Date | null
 }
 
 export interface CorreoGuardado extends CorreoCrudo {
@@ -39,8 +46,9 @@ export async function guardarCorreoCrudo(
 ): Promise<{ id: string; duplicado: boolean }> {
   const filas = await db.query<{ id: string }>(
     `INSERT INTO raw_emails (tenant_id, message_id, crudo, from_addr, subject,
-                             dkim_ok, dkim_domain, cuarentena, motivo)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                             dkim_ok, dkim_domain, cuarentena, motivo,
+                             clasificacion, parse_ok, banco_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      ON CONFLICT (tenant_id, message_id) DO NOTHING
      RETURNING id`,
     [
@@ -53,6 +61,9 @@ export async function guardarCorreoCrudo(
       correo.dkimDomain ?? null,
       correo.cuarentena ?? false,
       correo.motivo ?? null,
+      correo.clasificacion ?? null,
+      correo.parseOk ?? null,
+      correo.bancoAt?.toISOString() ?? null,
     ],
   )
 
@@ -101,6 +112,63 @@ export async function listarCorreosCrudos(
     motivo: f.motivo,
     recibidoAt: f.recibido_at,
   }))
+}
+
+/**
+ * ¿Ya vimos este correo?
+ *
+ * Los MTA reentregan y la gente reenvía. Se pregunta antes de trabajar para no
+ * gastar una verificación de firma —que hace consultas de DNS— en algo que ya
+ * está guardado.
+ */
+export async function correoYaVisto(
+  db: Db,
+  tenantId: string,
+  messageId: string,
+): Promise<boolean> {
+  const filas = await db.query<{ id: string }>(
+    `SELECT id FROM raw_emails WHERE tenant_id = $1 AND message_id = $2`,
+    [tenantId, messageId],
+  )
+  return filas.length > 0
+}
+
+/**
+ * Correos que llegaron y no se pudieron parsear.
+ *
+ * El detector más urgente de los tres: si esto devuelve algo, Bancolombia
+ * cambió la redacción y todos los clientes se quedan sin conciliar el mismo
+ * día. No hay diversificación de bancos que amortigüe.
+ */
+export async function correosSinParsear(
+  db: Db,
+  tenantId: string,
+  desde: Date,
+): Promise<Array<{ id: string; subject: string | null; recibidoAt: Date }>> {
+  const filas = await db.query<{ id: string; subject: string | null; recibido_at: Date }>(
+    `SELECT id, subject, recibido_at
+       FROM raw_emails
+      WHERE tenant_id = $1 AND parse_ok = false AND recibido_at >= $2
+      ORDER BY recibido_at DESC`,
+    [tenantId, desde.toISOString()],
+  )
+  return filas.map((f) => ({ id: f.id, subject: f.subject, recibidoAt: f.recibido_at }))
+}
+
+/**
+ * Cuándo llegó el último correo, para el heartbeat.
+ *
+ * `null` significa que no llegó ninguno **nunca**, que en el onboarding es lo
+ * normal y a los tres días es la falla más probable del producto: el reenvío de
+ * Gmail se murió y nadie se entera, porque el sistema no distingue "hoy no hubo
+ * pagos" de "hace tres días que no llega nada".
+ */
+export async function ultimoCorreoEn(db: Db, tenantId: string): Promise<Date | null> {
+  const filas = await db.query<{ ultimo: Date | null }>(
+    `SELECT max(recibido_at) AS ultimo FROM raw_emails WHERE tenant_id = $1`,
+    [tenantId],
+  )
+  return filas[0]?.ultimo ?? null
 }
 
 /** Cuántos correos quedaron en cuarentena. Un número que sube es alguien probando. */

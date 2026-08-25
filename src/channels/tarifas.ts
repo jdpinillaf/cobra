@@ -98,3 +98,78 @@ export const TARIFA_TWILIO_WHATSAPP_HISTORICA: Tarifa = {
     return usdACop(meta + 0.005)
   },
 }
+
+/**
+ * Tarifas de voz, por minuto.
+ *
+ * Interfaz aparte de `Tarifa` a propósito: la mensajería se cobra por mensaje y
+ * por categoría, la voz por tiempo. Un `costoCop(canal, categoria, segundos?)`
+ * habría dejado a `TARIFA_META` recibiendo un argumento que no significa nada,
+ * y a quien lee el código preguntándose cuál de los dos gana.
+ */
+export interface TarifaVoz {
+  readonly nombre: string
+  costoCop(segundos: number): number
+}
+
+/**
+ * Twilio Programmable Voice saliente a **móvil** Colombia.
+ *
+ * Dos cosas contraintuitivas, las dos verificadas contra el rate card el 25 de
+ * agosto de 2026:
+ *
+ * 1. El móvil es **más barato** que el fijo (USD 0,0377 contra 0,0700). En
+ *    cobranza colombiana casi todo es móvil, así que la tarifa que importa es
+ *    la buena.
+ * 2. Twilio **redondea al minuto hacia arriba**: una llamada de 1:05 factura
+ *    dos minutos. Modelarlo al segundo subestimaría el costo hasta un 45 % en
+ *    llamadas de uno a dos minutos, que son la mayoría.
+ */
+export const TARIFA_TWILIO_VOZ_CO: TarifaVoz = {
+  nombre: 'twilio-voz-co',
+  costoCop: (segundos) => Math.ceil(Math.max(segundos, 0) / 60) * usdACop(0.0377),
+}
+
+/** Grabación de la llamada. Se factura con el mismo redondeo que el minuto. */
+export const TARIFA_TWILIO_GRABACION: TarifaVoz = {
+  nombre: 'twilio-grabacion',
+  costoCop: (segundos) => Math.ceil(Math.max(segundos, 0) / 60) * usdACop(0.0025),
+}
+
+/**
+ * Deepgram Voice Agent: escuchar, pensar y hablar en un solo precio.
+ *
+ * Factura **tiempo de socket abierto**, al segundo y sin redondear. Por eso el
+ * socket se abre en el evento `start` de Twilio y no al marcar: el timbrado no
+ * lo cobra Twilio, pero sí lo cobraría Deepgram.
+ */
+export const TARIFA_DEEPGRAM_AGENTE: TarifaVoz = {
+  nombre: 'deepgram-voice-agent',
+  costoCop: (segundos) => (Math.max(segundos, 0) / 60) * usdACop(0.075),
+}
+
+export interface CostoLlamada {
+  telefoniaCop: number
+  iaCop: number
+  totalCop: number
+}
+
+/**
+ * Lo que costó la llamada, partido en dos.
+ *
+ * Partido y no sumado porque son dos negociaciones distintas: el minuto de
+ * telefonía baja comprando volumen, el de IA cambiando de modelo. Un total
+ * pelado no deja ver cuál de las dos palancas mover.
+ */
+export function costoDeLlamadaCop(
+  segundos: number,
+  opciones: { grabada?: boolean; telefonia?: TarifaVoz; ia?: TarifaVoz } = {},
+): CostoLlamada {
+  const telefonia = opciones.telefonia ?? TARIFA_TWILIO_VOZ_CO
+  const ia = opciones.ia ?? TARIFA_DEEPGRAM_AGENTE
+  const grabacion = opciones.grabada === false ? 0 : TARIFA_TWILIO_GRABACION.costoCop(segundos)
+
+  const telefoniaCop = telefonia.costoCop(segundos) + grabacion
+  const iaCop = ia.costoCop(segundos)
+  return { telefoniaCop, iaCop, totalCop: telefoniaCop + iaCop }
+}

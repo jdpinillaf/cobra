@@ -10,6 +10,7 @@ import { procesarWebhook } from '@/channels/procesador-webhook'
 import { conTenant } from '@/repo/con-tenant'
 import { RepositorioPostgres } from '@/repo/cobranza/webhook-pg'
 import { obtenerDb } from '@/repo/conexion'
+import { tenantPorNumero } from '@/repo/tenants'
 
 /**
  * Webhook de WhatsApp Cloud API.
@@ -59,10 +60,7 @@ async function procesarPorTenant(payload: unknown, urlBase: string): Promise<{ i
   let ignorados = 0
 
   for (const numero of numerosDelPayload(payload)) {
-    const [tenant] = await db.query<{ id: string }>(
-      `SELECT id FROM tenants WHERE phone_number_id = $1 AND estado = 'activo'`,
-      [numero],
-    )
+    const tenant = await tenantPorNumero(db, numero)
     if (!tenant) {
       ignorados += 1
       continue

@@ -14,3 +14,8 @@ src/app/demo
 src/app/pagar
 src/app/api/demo
 src/app/api/chatwoot
+
+# Los portales de conciliación viven en `src/app/api/conciliacion/portal/` y no
+# en `api/demo/`, justamente porque esta lista los habría dejado fuera del
+# despliegue: la pantalla de conciliación los consulta y devolvía 404 en
+# producción mientras andaba en local.

@@ -1,4 +1,4 @@
-# Ponos
+# Ponox
 
 Agente de cobranzas conversacional para Colombia. Ingiere la cartera del cliente, ejecuta una cadencia de contacto por WhatsApp/SMS que **cumple la Ley 2300 por construcción**, y genera links de pago con referencia única contra la pasarela del propio cliente.
 
@@ -82,16 +82,21 @@ Configuración: `NEXT_PUBLIC_CALENDLY_URL` activa el embed de agendamiento. Sin 
 
 Nada de esto puede salir al navegador. Sin las variables, el webhook responde 503 y la factory cae a `ProveedorSimulado`: hay que pedir explícitamente hablar con la red.
 
+**El entorno decide si se habla con la red; el cliente decide desde qué número.** Son dos preguntas distintas. `tenants.phone_number_id`, `waba_id` y `wa_token_cifrado` mandan sobre las variables de abajo, que quedan como conveniencia de desarrollo y como lo que se usa mientras un cliente todavía no cargó lo suyo. Pero sin `PROVEEDOR_WHATSAPP=meta` no sale nada aunque el cliente tenga sus credenciales: cargarle el número no puede encender el motor sin querer.
+
 | Variable | Para qué |
 |---|---|
 | `PROVEEDOR_WHATSAPP=meta` | Activa el envío real. Sin ella, simulado |
-| `META_PHONE_NUMBER_ID` | Id del número dentro del WABA del cliente. No es el teléfono |
-| `META_WABA_ID` | WhatsApp Business Account del cliente |
-| `META_ACCESS_TOKEN` | System User permanente del Business Manager **del cliente** |
-| `META_APP_SECRET` | Firma `X-Hub-Signature-256` de los webhooks |
-| `META_TOKEN_VERIFICACION` | Handshake `GET` de suscripción |
+| `META_APP_SECRET` | Firma `X-Hub-Signature-256` de los webhooks. Es de **nuestra** App, no del cliente |
+| `META_TOKEN_VERIFICACION` | Handshake `GET` de suscripción. También de la App |
+| `SECRETO_CREDENCIALES` | Cifra el token de WhatsApp en reposo (`src/auth/cifrado.ts`, AES-256-GCM) |
+| `META_PHONE_NUMBER_ID` | Id del número dentro del WABA. No es el teléfono, y **es** el remitente. Solo si el tenant no lo tiene |
+| `META_WABA_ID` | WhatsApp Business Account. Solo si el tenant no lo tiene |
+| `META_ACCESS_TOKEN` | System User del Business Manager del cliente. Solo si el tenant no lo tiene |
 | `PROVEEDOR_SMS=twilio` | Activa el fallback real de SMS |
-| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_SHORT_CODE` | SMS. El remitente tiene que ser short code, no un celular |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_SHORT_CODE` | SMS. El remitente tiene que ser short code, no un celular. **No se parte por tenant**: el short code es de Ponox |
+
+El token del cliente se carga con `guardarCredencialesWhatsApp` (`src/repo/tenants.ts`), que lo cifra. Un `UPDATE` a mano sobre `wa_token_cifrado` lo dejaría en claro, y por eso la lectura lo rechaza a propósito en vez de usarlo en silencio.
 
 Con implementaciones 1:1 **no hace falta ser Tech Provider ni montar Embedded Signup**: basta un System User sobre la WABA del propio cliente. El programa de partners solo aplica a onboarding self-serve a escala.
 
@@ -112,10 +117,31 @@ nota en el panel, no en el teléfono.
 
 ## Estado
 
-Listo y verificado: modelo de dominio, compliance, cadencia, ingesta, canal saliente y entrante, ventana de servicio, opt-out, pagos, simulador del piloto, la landing y la demo conversacional.
+Este repo es el motor de **dos productos**: cobranza y conciliación. El detalle
+verificado, con diagramas de cada flujo, está en
+[`docs/estado-del-producto.md`](docs/estado-del-producto.md).
 
-Pendiente:
+**Cobranza — construido y verificado.** Modelo de dominio, compliance, cadencia,
+canal saliente y entrante sobre Postgres con RLS por tenant, ventana de servicio,
+opt-out, el agente contestando sobre la base, la bandeja de conversaciones, la
+pantalla de Consumo, la landing y la demo.
 
-- **Aprobación humana caso a caso.** Hoy `proponerAcuerdo` (`src/agent/herramientas.ts`) aprueba lo que cabe en los rangos que el cliente autorizó por escrito, y escala el resto. El modelo de dominio contempla `esperando_aprobacion`, pero no hay panel donde alguien apruebe.
-- Panel de operación para el cliente. Chatwoot (`src/integrations/chatwoot.ts`) cubre la consola de conversaciones, no la de cartera.
-- **Persistencia real detrás de `RepositorioWebhook`.** Hoy el webhook usa `RepositorioEnMemoria`, que se pierde al reiniciar y no se comparte entre instancias. Con dos réplicas y Meta reintentando, un entrante se registraría dos veces y el cupo quedaría mal contado. Es lo primero que hay que cerrar antes del primer cliente.
+**Conciliación — esquema y especificación, sin motor.** Las ocho tablas existen
+con RLS desde la primera migración, y los cinco caminos de `pnpm test:e2e` son su
+contrato. Hoy fallan a propósito: `crearSistema()` está sin implementar.
+
+Pendiente en cobranza, por orden de lo que costaría descubrirlo tarde:
+
+- **El circuito del pago no se cierra.** `src/payments/wompi.ts` tiene checkout,
+  checksum del webhook e interpretación de eventos, con tests, pero no existe la
+  ruta que reciba ese webhook y el link del agente apunta a `/pagar`.
+- **La cartera solo entra por `pnpm sembrar`.** `src/ingest` mapea y normaliza
+  Excel y CSV, con tests, pero nadie lo llama desde la app: sin pantalla de carga
+  y sin escribir en `cargas` ni en `filas_cuarentena`.
+- **Aprobación humana caso a caso.** Hoy `proponerAcuerdo`
+  (`src/agent/herramientas.ts`) aprueba lo que cabe en los rangos que el cliente
+  autorizó por escrito, y escala el resto. El modelo de dominio contempla
+  `esperando_aprobacion` y la tabla `approvals` existe, pero no hay panel donde
+  alguien apruebe.
+- **La pestaña Cumplimiento de la consola está apagada.** Es el entregable que
+  sostiene la venta; los datos ya están en `contactos`, falta la pantalla.
