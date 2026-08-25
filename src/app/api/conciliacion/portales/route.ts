@@ -31,15 +31,19 @@ export async function POST(request: Request): Promise<Response> {
   const cuerpo = await request.formData()
 
   /**
-   * El origen sale de las cabeceras del proxy, no de `request.url`.
+   * De dónde se consulta a los propios portales de demostración.
    *
-   * En Vercel `request.url` trae la URL **interna** con la que la función fue
-   * invocada, así que consultar los portales contra ella devolvía 404 en
-   * producción mientras en local andaba perfecto: local no tiene proxy y las
-   * dos coinciden. `x-forwarded-host` es la que ve el navegador.
+   * Tres fuentes, en este orden, y las tres hacen falta:
+   *
+   * 1. `VERCEL_URL` — la forma documentada de que una función se referencie a sí
+   *    misma. `request.url` trae la URL **interna** de la invocación, y usarla
+   *    daba 404 en producción mientras en local andaba bien: local no tiene
+   *    proxy y las dos coinciden.
+   * 2. `x-forwarded-host` — para cualquier otro proxy.
+   * 3. `request.url` — el caso local, sin nada delante.
    */
-  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host')
-  const protocolo = request.headers.get('x-forwarded-proto') ?? 'https'
+  const host = process.env.VERCEL_URL ?? request.headers.get('x-forwarded-host') ?? request.headers.get('host')
+  const protocolo = process.env.VERCEL_URL ? 'https' : (request.headers.get('x-forwarded-proto') ?? 'http')
   const origen = host ? `${protocolo}://${host}` : new URL(request.url).origin
 
   /**
@@ -85,7 +89,12 @@ export async function POST(request: Request): Promise<Response> {
         const e = await f.obtener()
         extraidas.push({ clave: f.clave, nombre: f.nombre, tipo: f.tipo, procedencia: e.procedencia, filas: e.filas })
       } catch (error) {
-        fallas.push({ fuente: f.nombre, motivo: error instanceof Error ? error.message : String(error) })
+        // Con el origen adentro: un 404 sin decir contra qué URL fue es una
+        // hora de adivinar cuál de los tres candidatos se eligió.
+        fallas.push({
+          fuente: f.nombre,
+          motivo: `${error instanceof Error ? error.message : String(error)} (origen: ${origen})`,
+        })
       }
     }),
   )
