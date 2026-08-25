@@ -85,3 +85,28 @@ problema que intentaba evitar.
 
 **Depende de:** decidir antes si Ponox se queda en Supabase free o pasa a Pro. La
 respuesta probablemente llegue sola con el primer cliente pagando.
+
+---
+
+## 4. Llamadas que quedan en `en_curso` para siempre
+
+**Qué:** un barrido que cierre las llamadas cuya escritura de cierre nunca llegó
+—`estado = 'en_curso'` y `iniciada_en` de hace más de una hora— marcándolas como
+`fallida`, y un `motivo_fin` que diga que se perdió el cierre.
+
+**Por qué:** apareció corriendo el set de demo: se cayó el DNS de Supabase a
+mitad de una llamada y la fila quedó `en_curso`, sin duración, sin resumen y sin
+costo. La pantalla la muestra como si todavía estuviera hablando. Con Twilio de
+verdad va a pasar más seguido, porque ahí el proceso también puede morir con el
+socket abierto.
+
+**Pros:** son diez líneas dentro de `/api/cron/tick`, que ya recorre los tenants
+activos. Y sin esto el costo del mes queda subestimado: una llamada sin cerrar
+es una llamada sin costo.
+
+**Contras:** cerrar por tiempo es adivinar. Una llamada larga de verdad no
+debería marcarse como fallida, así que el umbral tiene que ser holgado —una hora
+es mucho más que cualquier llamada de cobranza real.
+
+**Depende de:** nada. Se puede hacer apenas haya una llamada real que lo
+justifique.

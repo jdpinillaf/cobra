@@ -20,7 +20,12 @@
     "simular": "tsx scripts/simular-entrante.mts",
     "crear-usuario": "tsx scripts/crear-usuario.mts",
     "migrar": "tsx scripts/migrar.mts",
-    "prepublicar": "tsx scripts/publicar.mts"
+    "prepublicar": "tsx scripts/publicar.mts",
+    "llamar": "tsx scripts/llamar.mts",
+    "voz-probar": "tsx scripts/voz-probar.mts",
+    "voz-servidor": "tsx scripts/voz-servidor.mts",
+    "marcar": "tsx scripts/marcar.mts",
+    "voz-grabar": "tsx scripts/voz-grabar.mts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.36",
@@ -36,6 +41,7 @@
     "react-dom": "19.2.8",
     "three": "^0.185.1",
     "twilio": "^6.0.2",
+    "ws": "^8.21.3",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.4.3"
   },
@@ -49,6 +55,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/three": "^0.185.4",
+    "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
