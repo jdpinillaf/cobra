@@ -25,6 +25,20 @@ export interface Plan {
   mensualidadCop: number
   /** Por deudor y por mes, solo en el tier corporativo. */
   variablePorDeudorCop: number
+  /**
+   * Minutos de llamada incluidos, iguales en todos los planes.
+   *
+   * La voz **no** sale del cupo de mensajes: una llamada cuesta ~300 veces un
+   * WhatsApp (COP 461-922 contra COP 3,2 de una plantilla `utility`, y cero
+   * dentro de la ventana de servicio). Si saliera del mismo cupo, un cliente
+   * gastaría su plan entero en veinte llamadas y le cobraríamos COP 45 por
+   * algo que nos costó COP 772.
+   *
+   * Cien minutos nos cuestan ~COP 46.000: el 12 % de la mensualidad más chica.
+   * Alcanzan para unas 65 llamadas — suficiente para que lo usen, lo vean
+   * funcionar y lo pidan.
+   */
+  minutosVozIncluidos: number
 }
 
 export const PLANES: Readonly<Record<Tier, Plan>> = {
@@ -36,6 +50,7 @@ export const PLANES: Readonly<Record<Tier, Plan>> = {
     setupCop: 1_500_000,
     mensualidadCop: 400_000,
     variablePorDeudorCop: 0,
+    minutosVozIncluidos: 100,
   },
   mediana: {
     tier: 'mediana',
@@ -45,6 +60,7 @@ export const PLANES: Readonly<Record<Tier, Plan>> = {
     setupCop: 3_500_000,
     mensualidadCop: 800_000,
     variablePorDeudorCop: 0,
+    minutosVozIncluidos: 100,
   },
   grande: {
     tier: 'grande',
@@ -54,6 +70,7 @@ export const PLANES: Readonly<Record<Tier, Plan>> = {
     setupCop: 8_000_000,
     mensualidadCop: 1_200_000,
     variablePorDeudorCop: 0,
+    minutosVozIncluidos: 100,
   },
   corporativo: {
     tier: 'corporativo',
@@ -63,6 +80,7 @@ export const PLANES: Readonly<Record<Tier, Plan>> = {
     setupCop: 8_000_000,
     mensualidadCop: 1_200_000,
     variablePorDeudorCop: 400,
+    minutosVozIncluidos: 100,
   },
 }
 
@@ -76,6 +94,20 @@ export const COP_POR_MENSAJE_ADICIONAL = 45
 export const COP_POR_SMS_ADICIONAL = 280
 
 export const ADDON_CARTERA_CASTIGADA_COP = 300_000
+
+/**
+ * Minuto de voz por encima de los incluidos.
+ *
+ * Cuesta COP 461 el minuto facturado (Twilio a móvil Colombia redondeado al
+ * minuto, más grabación, más el minuto de Deepgram), así que a COP 1.500 el
+ * margen queda en 69 % — el mismo orden que el resto del producto.
+ *
+ * Cobrarlo por minuto en vez de meterlo en la mensualidad hace además que el
+ * cliente se autorregule: usa WhatsApp primero, que a nosotros nos cuesta
+ * cero, y la llamada solo cuando paga. Un precio plano enfrenta su incentivo
+ * con nuestro margen; este los alinea.
+ */
+export const COP_POR_MINUTO_VOZ_ADICIONAL = 1_500
 
 export function planPara(deudores: number): Plan {
   if (deudores <= PLANES.pequena.deudoresMax!) return PLANES.pequena
@@ -93,6 +125,10 @@ export interface Factura {
   excedenteWhatsapp: number
   excedenteWhatsappCop: number
   smsCop: number
+  minutosVozIncluidos: number
+  minutosVoz: number
+  excedenteVoz: number
+  excedenteVozCop: number
   totalCop: number
 }
 
@@ -105,6 +141,8 @@ export interface Factura {
 export function liquidarMes(params: {
   deudoresGestionados: number
   mensajesPorCanal: Record<Canal, number>
+  /** Minutos de llamada del mes, redondeados como los factura Twilio. */
+  minutosVoz?: number
   addonCarteraCastigada?: boolean
 }): Factura {
   const plan = planPara(params.deudoresGestionados)
@@ -114,6 +152,10 @@ export function liquidarMes(params: {
   const excedenteWhatsapp = Math.max(0, mensajesWhatsapp - plan.mensajesIncluidos)
   const excedenteWhatsappCop = excedenteWhatsapp * COP_POR_MENSAJE_ADICIONAL
   const smsCop = mensajesSms * COP_POR_SMS_ADICIONAL
+
+  const minutosVoz = params.minutosVoz ?? 0
+  const excedenteVoz = Math.max(0, minutosVoz - plan.minutosVozIncluidos)
+  const excedenteVozCop = excedenteVoz * COP_POR_MINUTO_VOZ_ADICIONAL
 
   const mensualidadCop =
     plan.mensualidadCop + plan.variablePorDeudorCop * params.deudoresGestionados
@@ -127,10 +169,15 @@ export function liquidarMes(params: {
     excedenteWhatsapp,
     excedenteWhatsappCop,
     smsCop,
+    minutosVozIncluidos: plan.minutosVozIncluidos,
+    minutosVoz,
+    excedenteVoz,
+    excedenteVozCop,
     totalCop:
       mensualidadCop +
       excedenteWhatsappCop +
       smsCop +
+      excedenteVozCop +
       (params.addonCarteraCastigada ? ADDON_CARTERA_CASTIGADA_COP : 0),
   }
 }

@@ -34,6 +34,16 @@ export interface ContextoHerramientas {
   fechaHoy: string
   /** Origen público, para armar el link de pago. */
   urlBase: string
+  /**
+   * Por dónde está hablando. Default `whatsapp`: ningún llamador existente
+   * cambia.
+   *
+   * Solo cambia lo que la herramienta le **dice al agente que diga**. Por
+   * teléfono, «le responde por este mismo chat» es falso —la persona está en
+   * una llamada— y suena a plantilla mal pegada, que es exactamente lo que un
+   * cliente escucha cuando duda de que esto sea real.
+   */
+  canal?: 'whatsapp' | 'voz'
 }
 
 const cop = (n: number) =>
@@ -157,6 +167,8 @@ function dominioDePagos(urlBase: string): string {
 export function crearHerramientas(ctx: ContextoHerramientas) {
   const { puerto } = ctx
   const { obligacion, deudor } = puerto
+  const porDondeResponde =
+    ctx.canal === 'voz' ? 'le escribe por WhatsApp a este mismo número' : 'le responde por este mismo chat'
 
   const paso = (herramienta: string, detalle: string, estadoPaso: 'ok' | 'bloqueado' = 'ok') =>
     puerto.anotarPaso({ herramienta, detalle, estado: estadoPaso })
@@ -308,8 +320,7 @@ export function crearHerramientas(ctx: ContextoHerramientas) {
         await paso('escalarAHumano', `${motivo.replace(/_/g, ' ')} — ${resumen}`)
         return {
           escalado: true as const,
-          queHacer:
-            'Dile al deudor, sin prometer plazos concretos, que un asesor va a revisar su caso y le responde por este mismo chat. No le des una respuesta tú.',
+          queHacer: `Dile al deudor, sin prometer plazos concretos, que un asesor va a revisar su caso y ${porDondeResponde}. No le des una respuesta tú.`,
         }
       },
     }),

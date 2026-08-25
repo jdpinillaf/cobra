@@ -1,5 +1,5 @@
 import type { CategoriaFacturable } from '@/channels/tarifas'
-import type { Canal, ResultadoEnvio } from '@/domain/types'
+import type { CanalContacto, ResultadoEnvio } from '@/domain/types'
 import type { Db } from '../db'
 
 /**
@@ -38,7 +38,7 @@ export interface ContactoNuevo {
    * entrante real. Un dato que sostiene el sin-leer no puede ser opcional.
    */
   conversacionId: string
-  canal: Canal
+  canal: CanalContacto
   direccion: 'saliente' | 'entrante'
   /** ISO 8601 con offset. Siempre se evalúa contra hora de Bogotá. */
   timestamp: string
@@ -163,7 +163,7 @@ interface FilaContacto {
   obligacion_id: string
   deudor_id: string
   conversacion_id: string | null
-  canal: Canal
+  canal: CanalContacto
   direccion: 'saliente' | 'entrante'
   ocurrido_en: Date
   plantilla_id: string | null

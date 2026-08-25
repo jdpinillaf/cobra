@@ -1,4 +1,4 @@
-import type { Canal, Contacto, Deudor, Obligacion } from '@/domain/types'
+import type { CanalContacto, Contacto, Deudor, Obligacion } from '@/domain/types'
 import { esFestivo } from './festivos'
 import { enBogota, type InstanteBogota } from './reloj-bogota'
 
@@ -33,7 +33,7 @@ export type Decision =
 
 export interface SolicitudEnvio {
   ahora: Date
-  canal: Canal
+  canal: CanalContacto
   deudor: Deudor
   obligacion: Obligacion
   /**

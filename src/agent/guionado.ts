@@ -97,6 +97,22 @@ export function responderGuionado(texto: string, ctx: Contexto): RespuestaGuiona
       'de a poquitos',
     ])
   ) {
+    /**
+     * Con `cuotasMax` en 1 no hay cuotas que ofrecer.
+     *
+     * Antes esta rama devolvía «se lo puedo partir en 1 cuotas de X, la primera
+     * hoy y la segunda en 15 días»: mal el plural y, peor, prometía una segunda
+     * cuota que no existía. Un `limites_por_tramo` vacío significa **no se
+     * negocia nada**, y lo honesto con quien pide plazo es pasarlo a una
+     * persona, no inventarle un plan de una sola cuota.
+     */
+    if (cuotas < 2) {
+      return {
+        texto: `${nombre}, en este momento no tengo autorización para partir su saldo en cuotas. Le paso el caso a un asesor para que lo revise y le responde por acá mismo.`,
+        accion: { tipo: 'escalar' },
+      }
+    }
+
     return {
       texto: `${nombre}, su crédito ${obligacion.numeroCredito} tiene un saldo de ${cop(obligacion.saldoTotal)} y ${obligacion.diasMora} días de mora. Se lo puedo partir en ${cuotas} cuotas de ${cop(porCuota)}, la primera hoy y la segunda en 15 días. ¿Le sirve así?`,
       accion: { tipo: 'acuerdo', numeroCuotas: cuotas, montoTotal: obligacion.saldoTotal },

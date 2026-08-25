@@ -115,6 +115,18 @@ export class PuertoPostgres implements PuertoAgente {
     await this.tomaUnHumano()
   }
 
+  async registrarBaja(en: string): Promise<void> {
+    // Mismo `WHERE ... IS NULL` que `marcarNumeroErrado` y que el webhook: la
+    // fecha del primer pedido es la evidencia ante la SIC, y cada pedido
+    // posterior la reescribía hacia adelante borrando el dato que importa.
+    await this.db.query(
+      `UPDATE deudores SET revocado_en = $3
+        WHERE tenant_id = $1 AND id = $2 AND revocado_en IS NULL`,
+      [this.tenantId, this.deudor.id, en],
+    )
+    await this.tomaUnHumano()
+  }
+
   /**
    * La traza va a `agent_events`, que ya existía y no la escribía nadie.
    *

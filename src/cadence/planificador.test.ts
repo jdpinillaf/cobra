@@ -231,8 +231,29 @@ describe('consumoDelPeriodo', () => {
     ]
     expect(consumoDelPeriodo(contactos)).toEqual({
       mensajes: 3,
+      llamadas: 0,
       costoCop: 254,
-      porCanal: { whatsapp: 2, sms: 1 },
+      porCanal: { whatsapp: 2, sms: 1, voz: 0 },
+    })
+  })
+
+  /**
+   * La regla que protege el margen: `mensajes` es lo que se descuenta del cupo
+   * del plan, y una llamada cuesta ~300 veces un WhatsApp. Si la voz sumara
+   * ahí, un cliente gastaría su plan entero en veinte llamadas y le
+   * cobraríamos COP 45 por algo que nos costó COP 772.
+   */
+  it('la voz no consume cupo de mensajes, pero sí suma al costo', () => {
+    const contactos = [
+      unContacto({ id: '1', direccion: 'saliente', canal: 'whatsapp', costoCop: 3.2 }),
+      unContacto({ id: '2', direccion: 'saliente', canal: 'voz', costoCop: 772 }),
+      unContacto({ id: '3', direccion: 'saliente', canal: 'voz', costoCop: 461 }),
+    ]
+    expect(consumoDelPeriodo(contactos)).toEqual({
+      mensajes: 1,
+      llamadas: 2,
+      costoCop: 1236.2,
+      porCanal: { whatsapp: 1, sms: 0, voz: 2 },
     })
   })
 })

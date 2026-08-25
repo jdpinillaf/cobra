@@ -43,6 +43,15 @@ export interface PuertoAgente {
   /** Alguien avisó que el deudor no es él. */
   marcarNumeroErrado(en: string): Promise<void>
   /**
+   * El deudor pidió que no lo contacten más.
+   *
+   * Es una obligación de la Ley 2300 y **no se le delega al modelo**: lo
+   * detecta el código sobre lo que la persona dijo, igual que en el webhook de
+   * WhatsApp. Una revocación que dependa de que el modelo se acuerde de llamar
+   * una herramienta es una revocación que algún día no se registra.
+   */
+  registrarBaja(en: string): Promise<void>
+  /**
    * Qué consultó el agente antes de responder.
    *
    * No es decorativo: es lo que le muestra al cliente que hubo una consulta y
@@ -123,6 +132,14 @@ export class PuertoEnMemoria implements PuertoAgente {
     // En memoria no hay dónde escribirlo sobre el deudor: la demo se reinicia
     // con cada despliegue y la cartera es de mentira. Lo que importa —que el
     // agente deje de contestar— lo hace `tomaUnHumano`.
+    await this.tomaUnHumano()
+  }
+
+  async registrarBaja(en: string): Promise<void> {
+    // La fecha del **primer** pedido es la que vale como evidencia.
+    if (this.deudor.consentimiento.revocadoEn === null) {
+      this.deudor.consentimiento = { ...this.deudor.consentimiento, revocadoEn: en }
+    }
     await this.tomaUnHumano()
   }
 

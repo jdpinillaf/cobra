@@ -1,4 +1,4 @@
-import type { Cadencia, Canal, Contacto, Deudor, Obligacion, PasoCadencia, TramoMora } from '@/domain/types'
+import type { Cadencia, CanalContacto, Contacto, Deudor, Obligacion, PasoCadencia, TramoMora } from '@/domain/types'
 import { evaluar, type Decision, type MotivoBloqueo, type SolicitudEnvio } from '@/compliance/guard'
 import { desdeBogota, enBogota, sumarDias } from '@/compliance/reloj-bogota'
 
@@ -171,15 +171,25 @@ function inicioDeVentana(fecha: string, deudor: Deudor): Date | null {
  */
 export function consumoDelPeriodo(contactos: Contacto[]): {
   mensajes: number
+  llamadas: number
   costoCop: number
-  porCanal: Record<Canal, number>
+  porCanal: Record<CanalContacto, number>
 } {
   const cuentan = contactos.filter((c) => c.resultado !== 'bloqueado')
-  const porCanal: Record<Canal, number> = { whatsapp: 0, sms: 0 }
+  const porCanal: Record<CanalContacto, number> = { whatsapp: 0, sms: 0, voz: 0 }
   let costoCop = 0
   for (const c of cuentan) {
     porCanal[c.canal] += 1
     costoCop += c.costoCop
   }
-  return { mensajes: cuentan.length, costoCop, porCanal }
+  /**
+   * La voz se cuenta aparte y **no** suma a `mensajes`.
+   *
+   * No es prolijidad: `mensajes` es lo que se descuenta de `mensajesIncluidos`
+   * del plan, y una llamada cuesta ~300 veces un WhatsApp. Meterla en el mismo
+   * cupo dejaría a un cliente gastando su plan entero en veinte llamadas, y a
+   * nosotros cobrando COP 45 por algo que nos costó COP 772.
+   */
+  const llamadas = porCanal.voz
+  return { mensajes: cuentan.length - llamadas, llamadas, costoCop, porCanal }
 }
